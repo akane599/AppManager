@@ -255,6 +255,7 @@ public class AppDb {
             List<App> modifiedApps = new ArrayList<>();
             Set<String> newApps = new HashSet<>();
             Set<String> updatedApps = new HashSet<>();
+            Set<Integer> failedUserIds = new HashSet<>();
 
             // Interrupt thread on request
             if (ThreadUtils.isInterrupted()) return;
@@ -268,11 +269,21 @@ public class AppDb {
                     continue;
                 }
 
-                List<PackageInfo> packageInfoList = PackageManagerCompat.getInstalledPackages(
-                        GET_SIGNING_CERTIFICATES | PackageManager.GET_ACTIVITIES
-                                | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
-                                | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS
-                                | MATCH_UNINSTALLED_PACKAGES | MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
+                List<PackageInfo> packageInfoList;
+                try {
+                    packageInfoList = PackageManagerCompat.getInstalledPackages(
+                            GET_SIGNING_CERTIFICATES | PackageManager.GET_ACTIVITIES
+                                    | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
+                                    | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS
+                                    | MATCH_UNINSTALLED_PACKAGES | MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
+                } catch (Throwable th) {
+                    // Listing the packages of a single user can fail, e.g. when the privileged connection breaks
+                    // down. The apps of the remaining users are still worth storing, and the ones already stored
+                    // for this user are kept as-is below instead of being wiped.
+                    Log.w(TAG, "Could not retrieve the packages of user " + userId, th);
+                    failedUserIds.add(userId);
+                    continue;
+                }
 
                 for (PackageInfo packageInfo : packageInfoList) {
                     // Interrupt thread on request
@@ -323,6 +334,16 @@ public class AppDb {
                 App app = App.fromBackup(backup);
                 newApps.add(app.packageName);
                 modifiedApps.add(app);
+            }
+            // Keep the stored apps of the users that could not be listed: they were not matched above simply
+            // because their packages are unknown, not because they are gone.
+            if (!failedUserIds.isEmpty()) {
+                ListIterator<App> oldAppIterator = oldApps.listIterator();
+                while (oldAppIterator.hasNext()) {
+                    if (failedUserIds.contains(oldAppIterator.next().userId)) {
+                        oldAppIterator.remove();
+                    }
+                }
             }
             // Add new data
             mAppDao.delete(oldApps);

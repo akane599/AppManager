@@ -23,6 +23,7 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.IntDef;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.StringDef;
 import androidx.annotation.UiThread;
@@ -56,6 +57,7 @@ import io.github.muntashirakon.AppManager.servermanager.LocalServer;
 import io.github.muntashirakon.AppManager.servermanager.ServerConfig;
 import io.github.muntashirakon.AppManager.servermanager.WifiWaitService;
 import io.github.muntashirakon.AppManager.session.SessionMonitoringService;
+import io.github.muntashirakon.AppManager.shizuku.ShizukuUtils;
 import io.github.muntashirakon.AppManager.users.Owners;
 import io.github.muntashirakon.AppManager.users.Users;
 import io.github.muntashirakon.AppManager.utils.AppPref;
@@ -76,7 +78,7 @@ import io.github.muntashirakon.dialog.TextInputDialogBuilder;
 public class Ops {
     public static final String TAG = Ops.class.getSimpleName();
 
-    @StringDef({MODE_AUTO, MODE_ROOT, MODE_ADB_OVER_TCP, MODE_ADB_WIFI, MODE_NO_ROOT})
+    @StringDef({MODE_AUTO, MODE_ROOT, MODE_ADB_OVER_TCP, MODE_ADB_WIFI, MODE_SHIZUKU, MODE_NO_ROOT})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Mode {
     }
@@ -85,6 +87,7 @@ public class Ops {
     public static final String MODE_ROOT = "root";
     public static final String MODE_ADB_OVER_TCP = "adb_tcp";
     public static final String MODE_ADB_WIFI = "adb_wifi";
+    public static final String MODE_SHIZUKU = "shizuku";
     public static final String MODE_NO_ROOT = "no-root";
 
     @IntDef({
@@ -95,6 +98,8 @@ public class Ops {
             STATUS_ADB_PAIRING_REQUIRED,
             STATUS_ADB_CONNECT_REQUIRED,
             STATUS_FAILURE_ADB_NEED_MORE_PERMS,
+            STATUS_FAILURE_SHIZUKU_UNAVAILABLE,
+            STATUS_FAILURE_SHIZUKU_NEED_PERMISSION,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Status {
@@ -107,6 +112,17 @@ public class Ops {
     public static final int STATUS_ADB_PAIRING_REQUIRED = 4;
     public static final int STATUS_ADB_CONNECT_REQUIRED = 5;
     public static final int STATUS_FAILURE_ADB_NEED_MORE_PERMS = 6;
+    public static final int STATUS_FAILURE_SHIZUKU_UNAVAILABLE = 7;
+    public static final int STATUS_FAILURE_SHIZUKU_NEED_PERMISSION = 8;
+
+    /**
+     * How long to wait for the user to answer the Shizuku authorisation prompt, which Shizuku itself displays.
+     */
+    private static final long SHIZUKU_PERMISSION_TIMEOUT_SECONDS = 60;
+    /**
+     * Shizuku hands its binder over asynchronously shortly after the process starts.
+     */
+    private static final long SHIZUKU_BINDER_TIMEOUT_SECONDS = 5;
 
     public static int ROOT_UID = 0;
     public static int SHELL_UID = 2000;
@@ -118,6 +134,9 @@ public class Ops {
     private static boolean sIsAdb = false; // UID = 2000
     private static boolean sIsSystem = false; // UID = 1000
     private static boolean sIsRoot = false; // UID = 0
+    // The privileged process is being launched through Shizuku (or Sui) rather than ADB or su. This is
+    // orthogonal to the UID checks above: Shizuku runs as shell, Sui as root.
+    private static volatile boolean sIsShizuku = false;
     private static final ReentrantLock sTransitionLock = new ReentrantLock(true);
 
     // Security
@@ -178,6 +197,14 @@ public class Ops {
     }
 
     /**
+     * Whether App Manager uses Shizuku (or Sui) to run its privileged process.
+     */
+    @AnyThread
+    public static boolean isShizuku() {
+        return sIsShizuku;
+    }
+
+    /**
      * Whether the current App Manager session is authenticated by the user. It does two things:
      * <ol>
      *     <li>If security is enabled, it marks that the user has got passed the security challenge.
@@ -211,6 +238,9 @@ public class Ops {
     @NonNull
     public static CharSequence getInferredMode(@NonNull Context context) {
         int uid = Users.getSelfOrRemoteUid();
+        if (sIsShizuku && uid != Process.myUid()) {
+            return context.getString(R.string.shizuku);
+        }
         if (uid == ROOT_UID) {
             return context.getString(R.string.root);
         }
@@ -240,12 +270,23 @@ public class Ops {
             mode = MODE_AUTO;
             AppPref.set(AppPref.PrefKey.PREF_MODE_OF_OPS_STR, mode);
         }
-        if ((MODE_ADB_OVER_TCP.equals(mode) || MODE_ADB_WIFI.equals(mode))
-                && !SelfPermissions.checkSelfPermission(Manifest.permission.INTERNET)) {
-            // ADB enabled but the INTERNET permission is not granted, replace current with auto.
+        if (requiresLocalSocket(mode) && !SelfPermissions.checkSelfPermission(Manifest.permission.INTERNET)) {
+            // These modes talk to the local server over a socket, which needs the INTERNET permission.
+            // It is not granted, so replace the current mode with auto.
+            return MODE_AUTO;
+        }
+        if (MODE_SHIZUKU.equals(mode) && !ShizukuUtils.isSupported()) {
+            // Shizuku cannot be used on this version of Android
             return MODE_AUTO;
         }
         return mode;
+    }
+
+    /**
+     * Whether the given mode reaches the privileged process through the local server socket.
+     */
+    private static boolean requiresLocalSocket(@Mode @NonNull String mode) {
+        return MODE_ADB_OVER_TCP.equals(mode) || MODE_ADB_WIFI.equals(mode) || MODE_SHIZUKU.equals(mode);
     }
 
     @NoOps
@@ -267,6 +308,7 @@ public class Ops {
             case MODE_ROOT:
             case MODE_ADB_OVER_TCP:
             case MODE_ADB_WIFI:
+            case MODE_SHIZUKU:
             case MODE_NO_ROOT:
                 return true;
             default:
@@ -290,6 +332,7 @@ public class Ops {
     private static int initLocked(@NonNull Context context, boolean force) {
         String mode = getMode();
         sDirectRoot = hasRoot();
+        sIsShizuku = MODE_SHIZUKU.equals(mode);
         if (MODE_AUTO.equals(mode)) {
             autoDetectRootSystemOrAdbAndPersist(context);
             return sIsAdb ? STATUS_SUCCESS : initPermissionsWithSuccess();
@@ -298,7 +341,7 @@ public class Ops {
             fallbackToNoRoot(context);
             return STATUS_SUCCESS;
         }
-        if (MODE_ADB_OVER_TCP.equals(mode) || MODE_ADB_WIFI.equals(mode)) {
+        if (requiresLocalSocket(mode)) {
             sDirectRoot = false;
         }
         if (!force && isAMServiceUpAndRunning(context, mode)) {
@@ -328,6 +371,15 @@ public class Ops {
                         throw new RemoteException("Root service did not start as root.");
                     }
                     return initPermissionsWithSuccess();
+                case MODE_SHIZUKU: {
+                    sDirectRoot = false;
+                    sIsRoot = sIsSystem = sIsAdb = false;
+                    int status = connectShizukuLocked(context, true);
+                    if (status != STATUS_SUCCESS) {
+                        return status;
+                    }
+                    return checkPrivilegedUid(context);
+                }
                 case MODE_ADB_WIFI:
                     sDirectRoot = false;
                     sIsRoot = sIsSystem = false;
@@ -351,7 +403,7 @@ public class Ops {
                     ServerConfig.setAdbPort(findAdbPort(context, 10, AdbUtils.getAdbPortOrDefault()));
                     LocalServer.restart();
                     LocalServices.bindServicesIfNotAlready();
-                    return checkRootOrIncompleteUsbDebuggingInAdb(context);
+                    return checkPrivilegedUid(context);
             }
         } catch (Throwable e) {
             Log.e(TAG, e);
@@ -371,6 +423,37 @@ public class Ops {
     @NoOps
     public static boolean hasRoot() {
         return RunnerUtils.isRootGiven();
+    }
+
+    /**
+     * Start the local server and bind the remote services through Shizuku.
+     *
+     * @param askForPermission whether the user may be prompted for the Shizuku authorisation
+     * @return {@link #STATUS_SUCCESS} when the services are up, a Shizuku failure status otherwise
+     */
+    @WorkerThread
+    @NoOps(used = true)
+    @Status
+    private static int connectShizukuLocked(@NonNull Context context, boolean askForPermission)
+            throws IOException, RemoteException, AdbPairingRequiredException {
+        if (!ShizukuUtils.isSupported()
+                || !ShizukuUtils.awaitService(SHIZUKU_BINDER_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                || ShizukuUtils.isUnsupportedVersion()) {
+            fallbackToNoRoot(context);
+            return STATUS_FAILURE_SHIZUKU_UNAVAILABLE;
+        }
+        if (!ShizukuUtils.hasPermission()) {
+            if (!askForPermission
+                    || !ShizukuUtils.requestPermission(SHIZUKU_PERMISSION_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                fallbackToNoRoot(context);
+                return STATUS_FAILURE_SHIZUKU_NEED_PERMISSION;
+            }
+        }
+        // Shizuku is authorised: the local server and everything above it work exactly as in ADB mode
+        sIsShizuku = true;
+        LocalServer.restart();
+        LocalServices.bindServicesIfNotAlready();
+        return STATUS_SUCCESS;
     }
 
     @WorkerThread
@@ -435,7 +518,7 @@ public class Ops {
                 return;
             }
             if (uid == SHELL_UID) {
-                if (checkRootOrIncompleteUsbDebuggingInAdb(context) == STATUS_SUCCESS) {
+                if (checkPrivilegedUid(context) == STATUS_SUCCESS) {
                     setMode(MODE_ADB_OVER_TCP);
                     return;
                 }
@@ -448,10 +531,25 @@ public class Ops {
         // Root not granted
         if (!SelfPermissions.checkSelfPermission(Manifest.permission.INTERNET)) {
             // INTERNET permission is not granted
-            // Skip checking for ADB
+            // Skip checking for ADB and Shizuku, both of which need the local server socket
             fallbackToNoRoot(context);
             setMode(MODE_NO_ROOT);
             return;
+        }
+        // Check for Shizuku before ADB: it is faster and does not depend on wireless debugging. Only an
+        // already-granted authorisation is used here, so that automatic detection never puts a permission
+        // prompt in front of the user.
+        if (ShizukuUtils.isSupported() && ShizukuUtils.hasPermission()) {
+            try {
+                if (connectShizukuLocked(context, false) == STATUS_SUCCESS
+                        && checkPrivilegedUid(context) == STATUS_SUCCESS) {
+                    setMode(MODE_SHIZUKU);
+                    return;
+                }
+            } catch (Throwable e) {
+                Log.w(TAG, "Could not use Shizuku, trying ADB…", e);
+            }
+            sIsShizuku = false;
         }
         // Check for ADB
         if (!AdbUtils.isAdbdRunning()) {
@@ -470,7 +568,7 @@ public class Ops {
         }
         sIsAdb = LocalServices.alive();
         if (sIsAdb) {
-            int status = checkRootOrIncompleteUsbDebuggingInAdb(context);
+            int status = checkPrivilegedUid(context);
             if (status == STATUS_SUCCESS) {
                 // This backend was established through ADB even if adbd itself runs as root or
                 // system on this device.
@@ -522,12 +620,12 @@ public class Ops {
     @Status
     private static int autoConnectWirelessDebuggingLocked(@NonNull Context context) {
         sIsAdb = true;
-        sIsSystem = sIsRoot = false;
+        sIsSystem = sIsRoot = sIsShizuku = false;
         try {
             ServerConfig.setAdbPort(findAdbPort(context, 5, ServerConfig.getAdbPort()));
             LocalServer.restart();
             LocalServices.bindServicesIfNotAlready();
-            return checkRootOrIncompleteUsbDebuggingInAdb(context);
+            return checkPrivilegedUid(context);
         } catch (RemoteException | IOException | AdbPairingRequiredException | RuntimeException e) {
             Log.e(TAG, "Could not auto-connect to adbd", e);
             fallbackToNoRoot(context);
@@ -557,12 +655,12 @@ public class Ops {
             return returnCodeOnFailure;
         }
         sIsAdb = true;
-        sIsSystem = sIsRoot = false;
+        sIsSystem = sIsRoot = sIsShizuku = false;
         try {
             ServerConfig.setAdbPort(port);
             LocalServer.restart();
             LocalServices.bindServicesIfNotAlready();
-            return checkRootOrIncompleteUsbDebuggingInAdb(context);
+            return checkPrivilegedUid(context);
         } catch (RemoteException | IOException | AdbPairingRequiredException | RuntimeException e) {
             Log.e(TAG, "Could not connect to adbd using port " + port, e);
             fallbackToNoRoot(context);
@@ -912,12 +1010,22 @@ public class Ops {
 
     @UiThread
     public static void displayIncompleteUsbDebuggingMessage(@NonNull FragmentActivity activity) {
-        new ScrollableDialogBuilder(activity)
+        displayIncompleteUsbDebuggingMessage(activity, null);
+    }
+
+    /**
+     * @param onDismiss run once the user has closed the message. Callers that finish their activity afterwards
+     *                  must use it: a dialog attached to a finishing activity is never seen.
+     */
+    @UiThread
+    public static void displayIncompleteUsbDebuggingMessage(@NonNull FragmentActivity activity,
+                                                            @Nullable Runnable onDismiss) {
+        AlertDialog dialog = new ScrollableDialogBuilder(activity)
                 .setTitle(R.string.adb_incomplete_usb_debugging_title)
                 .setMessage(R.string.adb_incomplete_usb_debugging_message)
                 .enableAnchors()
                 .setNegativeButton(R.string.close, null)
-                .setPositiveButton(R.string.open, (dialog, which, isChecked) -> {
+                .setPositiveButton(R.string.open, (d, which, isChecked) -> {
                     Intent intent = new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     try {
@@ -925,7 +1033,46 @@ public class Ops {
                     } catch (Throwable ignore) {
                     }
                 })
-                .show();
+                .create();
+        if (onDismiss != null) {
+            dialog.setOnDismissListener(d -> onDismiss.run());
+        }
+        dialog.show();
+    }
+
+    /**
+     * Explain why Shizuku could not be used and, where possible, offer a way to fix it.
+     *
+     * @param onDismiss run once the user has closed the message, see
+     *                  {@link #displayIncompleteUsbDebuggingMessage(FragmentActivity, Runnable)}.
+     */
+    @UiThread
+    public static void displayShizukuUnavailableMessage(@NonNull FragmentActivity activity, @Status int status,
+                                                        @Nullable Runnable onDismiss) {
+        boolean permissionDenied = status == STATUS_FAILURE_SHIZUKU_NEED_PERMISSION;
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.shizuku)
+                .setMessage(permissionDenied
+                        ? R.string.shizuku_permission_denied_message
+                        : R.string.shizuku_unavailable_message)
+                .setNegativeButton(R.string.close, null)
+                .setOnDismissListener(dialog -> {
+                    if (onDismiss != null) {
+                        onDismiss.run();
+                    }
+                });
+        Intent launchIntent = activity.getPackageManager()
+                .getLaunchIntentForPackage(ShizukuUtils.PACKAGE_NAME_SHIZUKU);
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            builder.setPositiveButton(R.string.open, (dialog, which) -> {
+                try {
+                    activity.startActivity(launchIntent);
+                } catch (Throwable ignore) {
+                }
+            });
+        }
+        builder.show();
     }
 
     private static int initPermissionsWithSuccess() {
@@ -968,7 +1115,7 @@ public class Ops {
             }
             if (sIsAdb) {
                 // AM service is running as ADB
-                return checkRootOrIncompleteUsbDebuggingInAdb(context) == STATUS_SUCCESS;
+                return checkPrivilegedUid(context) == STATUS_SUCCESS;
             }
             // All checks are failed, stop services
             LocalServices.stopServices();
@@ -978,27 +1125,40 @@ public class Ops {
         return false;
     }
 
+    /**
+     * Verify the UID the privileged service actually runs as, whichever back-end was used to start it.
+     */
     @NoOps // Although we've used Ops checks, its overall usage does not affect anything
-    private static int checkRootOrIncompleteUsbDebuggingInAdb(@NonNull Context context) {
-        // ADB already granted and AM service is running
+    private static int checkPrivilegedUid(@NonNull Context context) {
+        // The privileged connection is established and the AM service is running
+        boolean shizuku = sIsShizuku;
         int uid = Users.getSelfOrRemoteUid();
         if (uid == ROOT_UID) {
             // AM service is being run as root
             sIsRoot = true;
             sIsSystem = sIsAdb = false;
-            ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.warning_working_on_root_mode));
+            if (shizuku) {
+                // Sui runs as root, which is expected rather than a surprise
+                ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.working_on_shizuku_mode));
+            } else {
+                ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.warning_working_on_root_mode));
+            }
         } else if (uid == SYSTEM_UID) {
             // AM service is being run as system
             sIsSystem = true;
             sIsRoot = sIsAdb = false;
             ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.warning_working_on_system_mode));
-        } else if (uid == SHELL_UID) { // ADB mode
+        } else if (uid == SHELL_UID) { // ADB or Shizuku
             if (!SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS)) {
                 // USB debugging is incomplete, revert back to no-root
                 fallbackToNoRoot(context);
-                return STATUS_FAILURE_ADB_NEED_MORE_PERMS;
+                return shizuku ? STATUS_FAILURE : STATUS_FAILURE_ADB_NEED_MORE_PERMS;
             }
-            ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.working_on_adb_mode));
+            if (shizuku) {
+                ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.working_on_shizuku_mode));
+            } else {
+                ThreadUtils.postOnMainThread(() -> UIUtils.displayShortToast(R.string.working_on_adb_mode));
+            }
         } else {
             // No-root mode
             fallbackToNoRoot(context);
@@ -1020,6 +1180,8 @@ public class Ops {
             }
             sDirectRoot = false;
             sIsAdb = sIsSystem = sIsRoot = false;
+            // Reset only after the server has been asked to stop: stopping it goes through this very back-end
+            sIsShizuku = false;
             setWorkingUid(Process.myUid());
         } finally {
             sTransitionLock.unlock();

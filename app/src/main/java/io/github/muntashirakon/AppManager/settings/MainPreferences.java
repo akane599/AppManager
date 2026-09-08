@@ -31,11 +31,13 @@ public class MainPreferences extends PreferenceFragment {
         return preferences;
     }
 
+    // Must be kept in the same order as R.array.modes
     private static final List<String> MODE_NAMES = Arrays.asList(
             Ops.MODE_AUTO,
             Ops.MODE_ROOT,
             Ops.MODE_ADB_OVER_TCP,
             Ops.MODE_ADB_WIFI,
+            Ops.MODE_SHIZUKU,
             Ops.MODE_NO_ROOT);
 
     private FragmentActivity mActivity;
@@ -74,7 +76,7 @@ public class MainPreferences extends PreferenceFragment {
         super.onStart();
         if (mModePref != null) {
             mModePref.setSummary(getString(R.string.mode_of_op_with_inferred_mode_of_op,
-                    mModes[MODE_NAMES.indexOf(Ops.getMode())], Ops.getInferredMode(mActivity)));
+                    getModeLabel(Ops.getMode()), Ops.getInferredMode(mActivity)));
         }
         if (mLocalePref != null) {
             mLocalePref.setSummary(getLanguageName());
@@ -84,6 +86,16 @@ public class MainPreferences extends PreferenceFragment {
     @Override
     public int getTitle() {
         return R.string.settings;
+    }
+
+    @NonNull
+    private CharSequence getModeLabel(@Ops.Mode @NonNull String mode) {
+        int index = MODE_NAMES.indexOf(mode);
+        if (mModes == null || index < 0 || index >= mModes.length) {
+            // Unknown mode: display its identifier rather than crashing
+            return mode;
+        }
+        return mModes[index];
     }
 
     public CharSequence getLanguageName() {

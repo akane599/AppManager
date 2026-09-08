@@ -146,10 +146,14 @@ public final class PackageUtils {
                 // Load app list for the first time
                 Log.d(TAG, "Loading apps for the first time.");
                 appDb.loadInstalledOrBackedUpApplications(context);
-                apps = appDb.getAllApplications();
+            } catch (Throwable th) {
+                // Fetching the apps from the system can fail, e.g. when a privileged connection breaks down in the
+                // middle of it. Continue with whatever has been stored in the database instead of failing outright.
+                Log.e(TAG, "Could not fetch the list of applications from the system.", th);
             } finally {
                 CpuUtils.releaseWakeLock(wakeLock);
             }
+            apps = appDb.getAllApplications();
         }
         Map<String, Backup> backups = appDb.getBackups(false);
         int thisUser = UserHandleHidden.myUserId();
@@ -254,6 +258,8 @@ public final class PackageUtils {
                     if (loadBackups) {
                         appDb.loadInstalledOrBackedUpApplications(context);
                     } else appDb.updateApplications(context);
+                } catch (Throwable th) {
+                    Log.e(TAG, "Could not update the list of applications in the background.", th);
                 } finally {
                     CpuUtils.releaseWakeLock(wakeLock);
                 }

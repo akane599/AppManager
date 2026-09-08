@@ -25,7 +25,8 @@ public class MultithreadedExecutor implements ExecutorService {
     @AnyThread
     @NonNull
     public static MultithreadedExecutor getNewInstance() {
-        if (sExecutorCache.size() > 0) {
+        // The cache is shared by every caller, and callers are not confined to a single thread
+        synchronized (sExecutorCache) {
             // Check if any executor has been shutdown
             for (MultithreadedExecutor executor : sExecutorCache) {
                 if (executor.isTerminated()) {
@@ -33,14 +34,15 @@ public class MultithreadedExecutor implements ExecutorService {
                     return executor;
                 }
             }
+            MultithreadedExecutor executor = new MultithreadedExecutor();
+            sExecutorCache.add(executor);
+            return executor;
         }
-        MultithreadedExecutor executor = new MultithreadedExecutor();
-        sExecutorCache.add(executor);
-        return executor;
     }
 
+    // Replaced by renew() from whichever thread asks for an instance
     @NonNull
-    private ExecutorService mExecutor;
+    private volatile ExecutorService mExecutor;
 
     private MultithreadedExecutor() {
         mExecutor = Executors.newFixedThreadPool(getThreadCount());

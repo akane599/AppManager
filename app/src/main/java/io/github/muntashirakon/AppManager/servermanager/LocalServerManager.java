@@ -36,6 +36,7 @@ import io.github.muntashirakon.AppManager.server.common.Constants;
 import io.github.muntashirakon.AppManager.server.common.DataTransmission;
 import io.github.muntashirakon.AppManager.server.common.ParcelableUtil;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.shizuku.ShizukuUtils;
 import io.github.muntashirakon.adb.AdbPairingRequiredException;
 import io.github.muntashirakon.adb.AdbStream;
 import io.github.muntashirakon.io.IoUtils;
@@ -95,7 +96,7 @@ class LocalServerManager {
                     // Successfully stopped the server.
                     // We try to start server again below.
                 } catch (Exception e) {
-                    if (!Ops.isDirectRoot() && !Ops.isAdb()) {
+                    if (!Ops.isDirectRoot() && !Ops.isAdb() && !Ops.isShizuku()) {
                         // Do not bother attempting to create a new session
                         throw new IOException("Could not create session", e);
                     }
@@ -156,14 +157,20 @@ class LocalServerManager {
     @WorkerThread
     @NonNull
     private byte[] execPre(@NonNull byte[] params) throws IOException {
+        // Obtained outside the try block: a failure to establish the session is not something a retry fixes
+        DataTransmission transmission = getSessionDataTransmission();
         try {
-            return getSessionDataTransmission().sendAndReceiveMessage(params);
-        } catch (IOException e) {
-            if (e.getMessage() != null && e.getMessage().contains("pipe")) {
-                closeSession();
-                return getSessionDataTransmission().sendAndReceiveMessage(params);
-            }
+            return transmission.sendAndReceiveMessage(params);
+        } catch (SocketTimeoutException e) {
+            // The server is alive but unresponsive. The caller restarts it instead.
             throw e;
+        } catch (IOException e) {
+            // The session itself is broken: a broken pipe, a connection reset by the peer, a socket closed
+            // while the device was asleep… The remote server usually outlives the socket, so recreating the
+            // session once is enough to recover instead of failing the whole operation.
+            Log.w(TAG, "Session is no longer usable, recreating it.", e);
+            closeSession();
+            return getSessionDataTransmission().sendAndReceiveMessage(params);
         }
     }
 
@@ -201,9 +208,32 @@ class LocalServerManager {
             // ADB may require a fallback method
             String command = ServerConfig.getServerRunnerCommand();
             Log.d(TAG, "useAdbStartServer: %s", command);
-            executeAdbCommand(is, os, command, "Success!", 1, TimeUnit.MINUTES);
+            executeShellCommand(is, os, command, "Success!", 1, TimeUnit.MINUTES);
         }
         Log.d(TAG, "useAdbStartServer: Server has started.");
+    }
+
+    @WorkerThread
+    private void useShizukuStartServer() throws Exception {
+        try (ShizukuUtils.ShizukuShell shell = openShizukuShell()) {
+            String command = ServerConfig.getServerRunnerCommand();
+            Log.d(TAG, "useShizukuStartServer: %s", command);
+            executeShellCommand(shell.getInputStream(), shell.getOutputStream(), command, "Success!",
+                    1, TimeUnit.MINUTES);
+        }
+        Log.d(TAG, "useShizukuStartServer: Server has started.");
+    }
+
+    @WorkerThread
+    @NonNull
+    private ShizukuUtils.ShizukuShell openShizukuShell() throws IOException {
+        if (!ShizukuUtils.isSupported()) {
+            throw new IOException("Shizuku is not supported on this version of Android.");
+        }
+        if (!ShizukuUtils.hasPermission()) {
+            throw new IOException("App Manager is not authorised to use Shizuku.");
+        }
+        return ShizukuUtils.openShell();
     }
 
     @WorkerThread
@@ -224,12 +254,12 @@ class LocalServerManager {
     }
 
     @WorkerThread
-    static void executeAdbCommand(@NonNull InputStream inputStream,
-                                  @NonNull OutputStream outputStream,
-                                  @NonNull String command,
-                                  @NonNull String successPrefix,
-                                  long timeout,
-                                  @NonNull TimeUnit timeoutUnit) throws IOException, InterruptedException {
+    static void executeShellCommand(@NonNull InputStream inputStream,
+                                    @NonNull OutputStream outputStream,
+                                    @NonNull String command,
+                                    @NonNull String successPrefix,
+                                    long timeout,
+                                    @NonNull TimeUnit timeoutUnit) throws IOException, InterruptedException {
         CountDownLatch commandWatcher = new CountDownLatch(1);
         AtomicBoolean commandSucceeded = new AtomicBoolean(false);
         AtomicReference<Throwable> readFailure = new AtomicReference<>();
@@ -252,7 +282,7 @@ class LocalServerManager {
             } finally {
                 commandWatcher.countDown();
             }
-        }, "am-adb-command-output");
+        }, "am-shell-command-output");
         outputThread.start();
         try {
             outputStream.write("id\n".getBytes(StandardCharsets.UTF_8));
@@ -294,11 +324,13 @@ class LocalServerManager {
     @WorkerThread
     @NoOps(used = true)
     private void startServer() throws Exception {
-        if (Ops.isAdb()) {
+        if (Ops.isShizuku()) {
+            useShizukuStartServer();
+        } else if (Ops.isAdb()) {
             useAdbStartServer();
         } else if (Ops.isDirectRoot()) {
             useRootStartServer();
-        } else throw new Exception("Neither root nor ADB mode is enabled.");
+        } else throw new Exception("Neither root, ADB nor Shizuku mode is enabled.");
     }
 
     /**
@@ -308,12 +340,19 @@ class LocalServerManager {
     @NoOps(used = true)
     private void stopServer() throws Exception {
         String command = "killall " + Constants.SERVER_NAME + "; echo Stopped!";
-        if (Ops.isAdb()) {
+        if (Ops.isShizuku()) {
+            try (ShizukuUtils.ShizukuShell shell = openShizukuShell()) {
+                Log.d(TAG, "stopServer (Shizuku): %s", command);
+                executeShellCommand(shell.getInputStream(), shell.getOutputStream(), command, "Stopped!",
+                        1, TimeUnit.MINUTES);
+            }
+            Log.d(TAG, "stopServer (Shizuku): Server has stopped.");
+        } else if (Ops.isAdb()) {
             try (AdbStream adbStream = openAdbShell();
                  InputStream is = adbStream.openInputStream();
                  OutputStream os = adbStream.openOutputStream()) {
                 Log.d(TAG, "stopServer (ADB): %s", command);
-                executeAdbCommand(is, os, command, "Stopped!", 1, TimeUnit.MINUTES);
+                executeShellCommand(is, os, command, "Stopped!", 1, TimeUnit.MINUTES);
             }
             Log.d(TAG, "stopServer (ADB): Server has stopped.");
         } else if (Ops.isDirectRoot()) {
@@ -328,7 +367,7 @@ class LocalServerManager {
             }
             SystemClock.sleep(3000);
             Log.d(TAG, "stopServer (root): Server has stopped.");
-        } else throw new Exception("Neither root nor ADB mode is enabled.");
+        } else throw new Exception("Neither root, ADB nor Shizuku mode is enabled.");
     }
 
     /**

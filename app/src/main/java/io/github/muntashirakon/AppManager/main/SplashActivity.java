@@ -156,15 +156,19 @@ public class SplashActivity extends AppCompatActivity {
                     } // fall-through
                 case Ops.STATUS_FAILURE_ADB_NEED_MORE_PERMS:
                     mStateNameView.setText(R.string.incomplete_usb_debugging);
-                    Ops.displayIncompleteUsbDebuggingMessage(this);
+                    // Launch only once the message has been read: this activity finishes right after, and a
+                    // dialog attached to a finishing activity is never seen.
+                    Ops.displayIncompleteUsbDebuggingMessage(this, this::launchMainActivity);
+                    return;
+                case Ops.STATUS_FAILURE_SHIZUKU_UNAVAILABLE:
+                case Ops.STATUS_FAILURE_SHIZUKU_NEED_PERMISSION:
+                    mStateNameView.setText(R.string.shizuku);
+                    Ops.displayShizukuUnavailableMessage(this, status, this::launchMainActivity);
+                    return;
                 case Ops.STATUS_SUCCESS:
                 case Ops.STATUS_FAILURE:
                     Log.d(TAG, "Authentication completed.");
-                    mStateNameView.setText(R.string.launching);
-                    mViewModel.setAuthenticating(false);
-                    Ops.setAuthenticated(this, true);
-                    startActivity(new Intent(this, MainActivity.class));
-                    finish();
+                    launchMainActivity();
             }
         });
         if (!mViewModel.isAuthenticating()) {
@@ -180,6 +184,21 @@ public class SplashActivity extends AppCompatActivity {
                     .putExtra(KeyStoreActivity.EXTRA_KS, true);
             mKeyStoreActivity.launch(keyStoreIntent);
         }
+    }
+
+    private void launchMainActivity() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (mStateNameView != null) {
+            mStateNameView.setText(R.string.launching);
+        }
+        if (mViewModel != null) {
+            mViewModel.setAuthenticating(false);
+        }
+        Ops.setAuthenticated(this, true);
+        startActivity(new Intent(this, MainActivity.class));
+        finish();
     }
 
     private void ensureSecurityAndModeOfOp() {

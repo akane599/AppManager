@@ -92,6 +92,16 @@ Mode of operation defines how App Manager works as a whole. It has the following
         This option is only displayed in devices running Android 11 or later as Wireless Debugging was introduced in Android 11.
     \end{tip}
 
+    \item \textbf{Shizuku.} Operate App Manager through \href{https://shizuku.rikka.app}{Shizuku} (or Sui). App Manager
+    starts its usual privileged server through Shizuku instead of ADB, which offers the same capabilities as
+    \textit{ADB over TCP} without having to keep wireless debugging enabled. Shizuku must be installed and running,
+    and it will ask you to authorise App Manager the first time. App Manager will fall back to \textit{no-root} mode
+    if Shizuku is unavailable or the authorisation is denied.
+    \begin{tip}{Info}
+        This option requires Android 7 or later. When Sui is used, the server runs as \textit{root} rather than as
+        \textit{ADB}.
+    \end{tip}
+
     \item \textbf{No-root.} Operate App Manager in no-root mode. While App Manager performs better in this mode,
     all the root- or ADB-specific features will be disabled.
 \end{itemize}

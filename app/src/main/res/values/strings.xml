@@ -717,6 +717,7 @@
     <string name="advanced">Advanced</string>
     <string name="user_profile_with_id">Profile: %1$s (%2$d)</string>
     <string name="root">Root</string>
+    <string name="shizuku" translatable="false">Shizuku</string>
     <string name="no_root">No root</string>
     <string name="close">Close</string>
     <string name="comment">Comment</string>
@@ -889,6 +890,10 @@
     <string name="isolated">Isolated</string>
     <string name="screen_lock_not_enabled">Please pick a screen lock in the Android settings, or clear app data.</string>
     <string name="working_on_adb_mode">Working on ADB mode</string>
+    <string name="failed_to_load_app_list">Could not load the list of apps. Check the mode of operation in the settings.</string>
+    <string name="working_on_shizuku_mode">Working on Shizuku mode</string>
+    <string name="shizuku_unavailable_message">App Manager could not reach Shizuku. Make sure Shizuku (or Sui) is installed and running, then try again.</string>
+    <string name="shizuku_permission_denied_message">App Manager is not authorised to use Shizuku. Grant it the permission from the Shizuku app, or select the Shizuku mode again to be asked once more.</string>
     <string name="verified_using_unreliable_hash">Verified using unreliable hash</string>
     <string name="specify_custom_name">Custom</string>
     <string name="installer_app_message">Select <b>Choose</b> to choose from the installed apps or select <b>Custom</b> to specify a custom package name.</string>

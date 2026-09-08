@@ -24,7 +24,7 @@ public class LocalServerManagerTest {
     @Test
     public void repeatedCommandsUseTheirOwnCompletionState() throws Exception {
         ByteArrayOutputStream startOutput = new ByteArrayOutputStream();
-        LocalServerManager.executeAdbCommand(
+        LocalServerManager.executeShellCommand(
                 input("uid=2000(shell)\nSuccess! Server has started.\n"),
                 startOutput,
                 "start-server",
@@ -33,7 +33,7 @@ public class LocalServerManagerTest {
                 TimeUnit.SECONDS);
 
         ByteArrayOutputStream stopOutput = new ByteArrayOutputStream();
-        LocalServerManager.executeAdbCommand(
+        LocalServerManager.executeShellCommand(
                 input("uid=2000(shell)\nStopped!\n"),
                 stopOutput,
                 "stop-server",
@@ -47,7 +47,7 @@ public class LocalServerManagerTest {
 
     @Test
     public void unrelatedOldMarkerDoesNotCompleteCommand() throws Exception {
-        LocalServerManager.executeAdbCommand(
+        LocalServerManager.executeShellCommand(
                 input("Success! Old operation\nStopped!\n"),
                 new ByteArrayOutputStream(),
                 "stop-server",
@@ -59,7 +59,7 @@ public class LocalServerManagerTest {
     @Test
     public void errorMarkerFailsCommand() throws Exception {
         try {
-            LocalServerManager.executeAdbCommand(
+            LocalServerManager.executeShellCommand(
                     input("Error! Could not start server.\n"),
                     new ByteArrayOutputStream(),
                     "start-server",
@@ -75,7 +75,7 @@ public class LocalServerManagerTest {
     @Test
     public void missingMarkerFailsCommand() throws Exception {
         try {
-            LocalServerManager.executeAdbCommand(
+            LocalServerManager.executeShellCommand(
                     input("uid=2000(shell)\n"),
                     new ByteArrayOutputStream(),
                     "start-server",
@@ -91,7 +91,7 @@ public class LocalServerManagerTest {
     @Test
     public void commandTimesOutWithoutOutput() throws Exception {
         try {
-            LocalServerManager.executeAdbCommand(
+            LocalServerManager.executeShellCommand(
                     new NeverEndingInputStream(),
                     new ByteArrayOutputStream(),
                     "start-server",

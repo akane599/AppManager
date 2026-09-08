@@ -24,10 +24,11 @@ import io.github.muntashirakon.AppManager.utils.ThreadUtils;
 class ServiceConnectionWrapper {
     public static final String TAG = ServiceConnectionWrapper.class.getSimpleName();
 
+    // Written from the main thread (the service callbacks) and read from worker threads
     @Nullable
-    private IBinder mIBinder;
+    private volatile IBinder mIBinder;
     @Nullable
-    private CountDownLatch mServiceBoundWatcher;
+    private volatile CountDownLatch mServiceBoundWatcher;
 
     private class ServiceConnectionImpl implements ServiceConnection {
         @Override
@@ -59,10 +60,14 @@ class ServiceConnectionWrapper {
         }
 
         private void onResponseReceived() {
-            if (mServiceBoundWatcher != null) {
-                // Should never be null
-                mServiceBoundWatcher.countDown();
-            } else throw new RuntimeException("Service watcher should never be null!");
+            CountDownLatch watcher = mServiceBoundWatcher;
+            if (watcher != null) {
+                watcher.countDown();
+            } else {
+                // A callback outside a binding attempt, e.g. a service dying long after it was bound. There is
+                // nobody to notify, and crashing the app over it would be far worse than ignoring it.
+                Log.w(TAG, "Received a service callback while no binding was in progress.");
+            }
         }
     }
 

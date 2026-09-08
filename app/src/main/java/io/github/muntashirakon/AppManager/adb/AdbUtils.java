@@ -64,24 +64,22 @@ public class AdbUtils {
         AtomicReference<String> atomicHostAddress = new AtomicReference<>(null);
         CountDownLatch resolveHostAndPort = new CountDownLatch(1);
 
-        AdbMdns adbMdnsTcp = new AdbMdns(context, AdbMdns.SERVICE_TYPE_ADB, (hostAddress, port) -> {
-            if (hostAddress != null) {
-                atomicHostAddress.set(hostAddress.getHostAddress());
-                atomicPort.set(port);
+        // The listener is also invoked without a host address when a service goes away. Counting down for those
+        // notifications used to abort the discovery immediately instead of waiting for a usable daemon.
+        AdbMdns.OnAdbDaemonDiscoveredListener listener = (hostAddress, port) -> {
+            if (hostAddress == null || !ServerConfig.isValidAdbPort(port)) {
+                return;
             }
+            atomicHostAddress.set(hostAddress.getHostAddress());
+            atomicPort.set(port);
             resolveHostAndPort.countDown();
-        });
+        };
+        AdbMdns adbMdnsTcp = new AdbMdns(context, AdbMdns.SERVICE_TYPE_ADB, listener);
         AdbMdns adbMdnsTls = null;
         try {
             adbMdnsTcp.start();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                adbMdnsTls = new AdbMdns(context, AdbMdns.SERVICE_TYPE_TLS_CONNECT, (hostAddress, port) -> {
-                    if (hostAddress != null) {
-                        atomicHostAddress.set(hostAddress.getHostAddress());
-                        atomicPort.set(port);
-                    }
-                    resolveHostAndPort.countDown();
-                });
+                adbMdnsTls = new AdbMdns(context, AdbMdns.SERVICE_TYPE_TLS_CONNECT, listener);
                 adbMdnsTls.start();
             }
             if (!resolveHostAndPort.await(timeout, unit)) {

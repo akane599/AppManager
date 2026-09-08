@@ -39,6 +39,8 @@ public class LocalServices {
     public static void bindServices() throws RemoteException {
         synchronized (sBindLock) {
             unbindServicesIfRunning();
+            // Binders fetched through the previous back-end cannot be used any more
+            ProxyBinder.invalidateServiceCache();
             bindAmService();
             bindFileSystemManager();
             // Verify binding
@@ -122,6 +124,7 @@ public class LocalServices {
         synchronized (sFileSystemServiceConnectionWrapper) {
             sFileSystemServiceConnectionWrapper.stopDaemon();
         }
+        ProxyBinder.invalidateServiceCache();
         Ops.setWorkingUid(Process.myUid());
     }
 

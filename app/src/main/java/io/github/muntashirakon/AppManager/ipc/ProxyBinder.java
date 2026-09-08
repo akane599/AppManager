@@ -43,11 +43,21 @@ public class ProxyBinder implements IBinder {
     @NonNull
     public static IBinder getService(String serviceName) throws ServiceNotFoundException {
         IBinder binder = sServiceCache.get(serviceName);
-        if (binder == null) {
+        // A cached binder becomes useless once its host dies, e.g. when system_server restarts or when the
+        // privileged service that handed it over is replaced after a change in the mode of operation.
+        if (binder == null || !binder.isBinderAlive()) {
             binder = getServiceInternal(serviceName);
             sServiceCache.put(serviceName, binder);
         }
         return new ProxyBinder(binder);
+    }
+
+    /**
+     * Forget every cached service binder. Must be called whenever the privileged back-end changes, since the
+     * binders handed over by the previous one are not usable any more.
+     */
+    public static void invalidateServiceCache() {
+        sServiceCache.clear();
     }
 
     /**
@@ -78,9 +88,11 @@ public class ProxyBinder implements IBinder {
     @NonNull
     public static IBinder getUnprivilegedService(String serviceName) throws ServiceNotFoundException {
         IBinder binder = sServiceCache.get(serviceName);
-        if (binder == null) {
+        if (binder == null || !binder.isBinderAlive()) {
             binder = ServiceManager.getService(serviceName);
-            sServiceCache.put(serviceName, binder);
+            if (binder != null) {
+                sServiceCache.put(serviceName, binder);
+            } else sServiceCache.remove(serviceName);
         }
         if (binder == null) {
             throw new ServiceNotFoundException("Service couldn't be found: " + serviceName);

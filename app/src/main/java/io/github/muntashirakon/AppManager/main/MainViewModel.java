@@ -44,7 +44,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 
+import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.apk.list.ListExporter;
 import io.github.muntashirakon.AppManager.backup.BackupUtils;
 import io.github.muntashirakon.AppManager.compat.ActivityManagerCompat;
@@ -76,10 +78,13 @@ import io.github.muntashirakon.AppManager.utils.ExUtils;
 import io.github.muntashirakon.AppManager.utils.MultithreadedExecutor;
 import io.github.muntashirakon.AppManager.utils.PackageUtils;
 import io.github.muntashirakon.AppManager.utils.ThreadUtils;
+import io.github.muntashirakon.AppManager.utils.UIUtils;
 import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.io.Path;
 
 public class MainViewModel extends AndroidViewModel implements ListOptions.ListOptionActions {
+    public static final String TAG = MainViewModel.class.getSimpleName();
+
     private final PackageManager mPackageManager;
     private final PackageIntentReceiver mPackageObserver;
     @MainListOptions.SortOrder
@@ -94,7 +99,19 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
     private String mSearchQuery;
     @AdvancedSearchView.SearchType
     private int mSearchType;
+    @Nullable
     private Future<?> mFilterResult;
+    /**
+     * Kept separate from {@link #mFilterResult}: a full reload can take minutes in ADB mode, and it must not be
+     * cancelled by the filtering/sorting requests that arrive while it is running.
+     */
+    @Nullable
+    private Future<?> mLoadResult;
+    /**
+     * Identifies the reload that is currently expected to publish a result, {@code null} when there is none. A
+     * superseded reload must not clear it, hence a token rather than a flag.
+     */
+    private final AtomicReference<Object> mLoadToken = new AtomicReference<>();
     private final Map<String, ApplicationItem> mSelectedPackageApplicationItemMap = Collections.synchronizedMap(new LinkedHashMap<>());
     final MultithreadedExecutor executor = MultithreadedExecutor.getNewInstance();
 
@@ -355,20 +372,54 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
         });
     }
 
+    /**
+     * Whether a full reload of the application list is currently running.
+     */
+    @AnyThread
+    public boolean isLoadingApplicationItems() {
+        return mLoadToken.get() != null;
+    }
+
     @GuardedBy("applicationItems")
     public void loadApplicationItems() {
+        Object token = new Object();
+        mLoadToken.set(token);
+        if (mLoadResult != null) {
+            // Only a newer full reload may supersede a running one
+            mLoadResult.cancel(true);
+        }
         cancelIfRunning();
-        mFilterResult = executor.submit(() -> {
-            List<ApplicationItem> updatedApplicationItems = PackageUtils
-                    .getInstalledOrBackedUpApplicationsFromDb(getApplication(), true, true);
+        mLoadResult = executor.submit(() -> {
+            // The executor is shared: clear any interruption leaked by a cancelled filtering task, otherwise every
+            // interruption check below would abort this reload before it could publish anything.
+            Thread.interrupted();
+            List<ApplicationItem> updatedApplicationItems = null;
+            try {
+                updatedApplicationItems = PackageUtils
+                        .getInstalledOrBackedUpApplicationsFromDb(getApplication(), true, true);
+            } catch (Throwable th) {
+                // A failing back-end (a broken ADB connection in particular) must never leave the list in a
+                // permanently loading state. Publish whatever is already known instead.
+                Log.e(TAG, "Could not load the list of applications.", th);
+                ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.failed_to_load_app_list));
+            } finally {
+                mLoadToken.compareAndSet(token, null);
+            }
+            if (ThreadUtils.isInterrupted()) {
+                // Superseded by a newer reload, which publishes its own result
+                return;
+            }
             synchronized (mApplicationItems) {
-                mApplicationItems.clear();
-                mApplicationItems.addAll(updatedApplicationItems);
-                // select apps again
-                for (ApplicationItem item : getSelectedApplicationItems()) {
-                    select(item);
+                if (updatedApplicationItems != null) {
+                    mApplicationItems.clear();
+                    mApplicationItems.addAll(updatedApplicationItems);
+                    // select apps again
+                    for (ApplicationItem item : getSelectedApplicationItems()) {
+                        select(item);
+                    }
+                    sortApplicationList(mSortBy, mReverseSort);
                 }
-                sortApplicationList(mSortBy, mReverseSort);
+                // Always publish a result, even on failure: the UI hides its progress indicator on the first emission.
                 filterItemsByFlags();
             }
         });
@@ -815,6 +866,11 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
         @Override
         @WorkerThread
         protected void onPackageChanged(Intent intent, @Nullable Integer uid, @Nullable String[] packages) {
+            if (mModel.isLoadingApplicationItems()) {
+                // A full reload is already running and will include these changes. Interfering with it would
+                // interrupt the reload: the database update it performs broadcasts these very intents.
+                return;
+            }
             mModel.cancelIfRunning();
             if (uid != null) {
                 mModel.updateInfoForUid(uid, intent.getAction());

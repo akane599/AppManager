@@ -32,7 +32,7 @@ public class LocalServer {
 
     @SuppressLint("StaticFieldLeak")
     @Nullable
-    private static LocalServer sLocalServer;
+    private static volatile LocalServer sLocalServer;
 
     @GuardedBy("lockObject")
     @WorkerThread
@@ -167,9 +167,16 @@ public class LocalServer {
     @WorkerThread
     @NoOps(used = true)
     public static void restart() throws IOException, AdbPairingRequiredException {
-        if (sLocalServer != null) {
-            LocalServerManager manager = sLocalServer.mLocalServerManager;
-            manager.closeBgServer();
+        LocalServer localServer = sLocalServer;
+        if (localServer != null) {
+            LocalServerManager manager = localServer.mLocalServerManager;
+            try {
+                manager.closeBgServer();
+            } catch (IOException e) {
+                // The previous server is unreachable, which is exactly why a restart was requested (a changed ADB
+                // port, for instance). Dropping the stale session and starting over is still worth attempting.
+                Log.w("IPC", "Could not close the previous server, restarting anyway.", e);
+            }
             manager.stop();
             manager.start();
         } else {

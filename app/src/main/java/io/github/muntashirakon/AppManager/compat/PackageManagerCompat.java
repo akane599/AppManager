@@ -136,15 +136,16 @@ public final class PackageManagerCompat {
             return packageInfoList;
         }
         if (packageInfoList.size() > refPackages.size()) {
-            // Should never happen
+            // The reference call returned fewer packages than the real one. This is unexpected, but the fuller
+            // list is still the better answer: throwing here used to abort the whole app list.
             Set<String> pkgsFromPkgInfo = new HashSet<>(packageInfoList.size());
             Set<String> pkgsFromAppInfo = new HashSet<>(refPackages.size());
             for (PackageInfo info : packageInfoList) pkgsFromPkgInfo.add(info.packageName);
             for (PackageInfo info : refPackages) pkgsFromAppInfo.add(info.packageName);
             pkgsFromPkgInfo.removeAll(pkgsFromAppInfo);
-            Log.i(TAG, "Loaded extra packages: " + pkgsFromPkgInfo.toString());
-            throw new IllegalStateException("Retrieved " + packageInfoList.size() + " packages out of "
-                    + refPackages.size() + " applications which is impossible");
+            Log.w(TAG, "Retrieved %d packages out of %d applications for user %d. Extra packages: %s",
+                    packageInfoList.size(), refPackages.size(), userId, pkgsFromPkgInfo);
+            return packageInfoList;
         }
         Log.w(TAG, "Could not fetch installed packages for user %d using getInstalledPackages(), using workaround",
                 userId);

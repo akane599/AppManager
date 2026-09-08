@@ -22,6 +22,7 @@ import io.github.muntashirakon.AppManager.compat.AppOpsManagerCompat;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.compat.PackageManagerCompat;
 import io.github.muntashirakon.AppManager.compat.PermissionCompat;
+import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.rules.compontents.ComponentsBlocker;
 import io.github.muntashirakon.AppManager.settings.FeatureController;
 import io.github.muntashirakon.AppManager.settings.Ops;
@@ -31,6 +32,8 @@ import io.github.muntashirakon.AppManager.utils.Utils;
 import io.github.muntashirakon.io.Paths;
 
 public class SelfPermissions {
+    public static final String TAG = SelfPermissions.class.getSimpleName();
+
     public static final String SHELL_PACKAGE_NAME = "com.android.shell";
 
     public static void init() {
@@ -213,7 +216,10 @@ public class SelfPermissions {
                 case AppOpsManager.MODE_IGNORED:
                     return false;
                 default:
-                    throw new IllegalStateException("Unknown AppOpsManager mode " + opMode);
+                    // Modes such as MODE_FOREGROUND, or vendor-specific ones, do not grant the op outright.
+                    // Falling back to the permission check is far better than crashing the caller.
+                    Log.w(TAG, "Unknown AppOpsManager mode %d for OP_MANAGE_EXTERNAL_STORAGE", opMode);
+                    return checkSelfOrRemotePermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE, callingUid);
             }
         }
         return checkSelfOrRemotePermission(Manifest.permission.WRITE_EXTERNAL_STORAGE, callingUid);
