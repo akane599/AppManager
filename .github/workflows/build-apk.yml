@@ -1,0 +1,157 @@
+name: Build APK
+
+# Builds installable APKs so that no local Android toolchain is needed.
+#
+# It runs automatically on every push to a claude/* branch, and can be started by hand from the
+# Actions tab ("Build APK" -> "Run workflow") once this file has reached the default branch, which
+# is where GitHub looks for manually startable workflows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (release APKs are NOT signed and cannot be installed)'
+        type: choice
+        options:
+          - debug
+          - release
+        default: debug
+      publish_release:
+        description: 'Attach the APKs to a pre-release for direct download (no zip to unpack)'
+        type: boolean
+        default: true
+  push:
+    branches:
+      - 'claude/**'
+    paths-ignore:
+      - 'docs/raw/**'
+      - 'fastlane/**'
+      - 'scripts/**'
+      - '*.md'
+      - '*.rst'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # Needed to publish the pre-release
+    env:
+      # A push carries no inputs, so fall back to the default of the manual form
+      BUILD_TYPE: ${{ inputs.build_type || 'debug' }}
+    steps:
+      - name: Clone the repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Accept Android SDK licences
+        # The NDK and CMake needed by the native build are downloaded on demand, which requires the
+        # licences to have been accepted. They already are on the runner image; this only covers the
+        # case where they are not.
+        run: |
+          sdkmanager="$(find "${ANDROID_HOME}/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          if [ -n "${sdkmanager}" ]; then
+            yes | "${sdkmanager}" --licenses > /dev/null 2>&1 || true
+          else
+            echo "sdkmanager not found, relying on the licences of the runner image."
+          fi
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build the APKs
+        run: ./gradlew "assemble${BUILD_TYPE^}" --stacktrace
+
+      - name: Collect the APKs
+        id: collect
+        run: |
+          set -euo pipefail
+          out_dir="apk"
+          apk_dir="app/build/outputs/apk/${BUILD_TYPE}"
+          mkdir -p "${out_dir}"
+
+          version="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]+"(.*)".*/\1/p' app/build.gradle | head -n 1)"
+          short_sha="$(git rev-parse --short HEAD)"
+
+          shopt -s nullglob
+          found=0
+          for apk in "${apk_dir}"/*.apk; do
+            # app-debug.apk -> debug, app-release-unsigned.apk -> release-unsigned, and
+            # app-<abi>-debug.apk -> <abi>-debug should the project ever enable ABI splits
+            variant="$(basename "${apk}" .apk)"
+            variant="${variant#app-}"
+            cp "${apk}" "${out_dir}/AppManager-${version}-${variant}-${short_sha}.apk"
+            found=$((found + 1))
+          done
+
+          if [ "${found}" -eq 0 ]; then
+            echo "No APK found in ${apk_dir}" >&2
+            ls -l "${apk_dir}" >&2 || true
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "short_sha=${short_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarise the build
+        run: |
+          set -euo pipefail
+          {
+            echo "## APKs"
+            echo
+            echo "| File | Size |"
+            echo "| --- | --- |"
+            for apk in apk/*.apk; do
+              echo "| \`$(basename "${apk}")\` | $(du -h "${apk}" | cut -f1) |"
+            done
+            echo
+            if [ "${BUILD_TYPE}" = "debug" ]; then
+              echo "Debug builds use the application ID \`io.github.muntashirakon.AppManager.debug\`, so they install"
+              echo "alongside a regular App Manager instead of replacing it."
+            else
+              echo "> **Release APKs are unsigned and cannot be installed.** Sign them yourself, or build the debug"
+              echo "> variant instead."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppManager-${{ inputs.build_type || 'debug' }}
+          path: apk/*.apk
+          if-no-files-found: error
+
+      - name: Publish a pre-release with the APKs
+        # Always on a push: a release gives a direct APK link, whereas an artifact is a zip
+        if: ${{ inputs.publish_release || github.event_name == 'push' }}
+        # The APKs have already been uploaded as an artifact, so a repository that does not allow
+        # releases should not turn a successful build red
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.collect.outputs.version }}
+          SHORT_SHA: ${{ steps.collect.outputs.short_sha }}
+          TAG: build-${{ github.run_number }}.${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          notes="Built from \`${GITHUB_REF_NAME}\` at \`${SHORT_SHA}\` by [run ${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+          if [ "${BUILD_TYPE}" = "debug" ]; then
+            notes="${notes}"$'\n\n'"Application ID \`io.github.muntashirakon.AppManager.debug\`: this installs alongside a regular App Manager rather than replacing it."
+          else
+            notes="${notes}"$'\n\n'"**These release APKs are unsigned and cannot be installed as-is.**"
+          fi
+          gh release create "${TAG}" \
+            --target "${GITHUB_SHA}" \
+            --title "App Manager ${VERSION} (${BUILD_TYPE}, ${SHORT_SHA})" \
+            --notes "${notes}" \
+            --prerelease \
+            apk/*.apk
+          echo "Pre-release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}" >> "${GITHUB_STEP_SUMMARY}"
