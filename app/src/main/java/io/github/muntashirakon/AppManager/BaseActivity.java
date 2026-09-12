@@ -37,6 +37,7 @@ import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.self.filecache.InternalCacheCleanerService;
 import io.github.muntashirakon.AppManager.self.life.BuildExpiryChecker;
 import io.github.muntashirakon.AppManager.settings.Ops;
+import io.github.muntashirakon.AppManager.settings.ShizukuPermissionDialog;
 import io.github.muntashirakon.AppManager.settings.Prefs;
 import io.github.muntashirakon.AppManager.settings.SecurityAndOpsViewModel;
 import io.github.muntashirakon.AppManager.utils.UIUtils;
@@ -151,8 +152,26 @@ public abstract class BaseActivity extends PerProcessActivity {
                 .create();
         setProgressText(R.string.authenticating);
         Log.d(TAG, "Waiting to be authenticated.");
+        getSupportFragmentManager().setFragmentResultListener(ShizukuPermissionDialog.RESULT, this,
+                (key, result) -> {
+                    if (result.getBoolean(ShizukuPermissionDialog.GRANTED)) mViewModel.setModeOfOps();
+                    else mViewModel.onStatusReceived(Ops.STATUS_FAILURE);
+                });
         mViewModel.authenticationStatus().observe(this, status -> {
             switch (status) {
+                case Ops.STATUS_SHIZUKU_PERMISSION_REQUIRED:
+                    mDisplayLoader = false;
+                    ShizukuPermissionDialog.show(getSupportFragmentManager());
+                    return;
+                case Ops.STATUS_SHIZUKU_UNAVAILABLE:
+                    mDisplayLoader = false;
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle(R.string.shizuku_mode)
+                            .setMessage(R.string.shizuku_unavailable)
+                            .setPositiveButton(R.string.close, (dialog, which) -> completeAuthentication(savedInstanceState))
+                            .setOnCancelListener(dialog -> completeAuthentication(savedInstanceState))
+                            .show();
+                    return;
                 case Ops.STATUS_AUTO_CONNECT_WIRELESS_DEBUGGING:
                     Log.d(TAG, "Try auto-connecting to wireless debugging.");
                     setProgressText(R.string.enabling_wireless_debugging);

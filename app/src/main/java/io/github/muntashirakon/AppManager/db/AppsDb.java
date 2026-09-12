@@ -67,7 +67,7 @@ public abstract class AppsDb extends RoomDatabase {
         }
     };
 
-    public static AppsDb getInstance() {
+    public static synchronized AppsDb getInstance() {
         if (sAppsDb == null) {
             sAppsDb = Room.databaseBuilder(ContextUtils.getContext(), AppsDb.class, "apps.db")
                     .addMigrations(M_2_3, M_3_4, M_4_5, M_5_6, M_6_7, M_7_8)

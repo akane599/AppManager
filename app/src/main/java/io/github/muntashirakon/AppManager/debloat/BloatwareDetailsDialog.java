@@ -169,8 +169,9 @@ public class BloatwareDetailsDialog extends CapsuleBottomSheetDialogFragment {
                 break;
         }
         mFlowLayout.removeAllViews();
-        addTag(mFlowLayout, debloatObject.type);
-        addTag(mFlowLayout, removalRes, removalColor);
+        addTag(mFlowLayout, "[" + debloatObject.getListLabel() + "]");
+        addTag(mFlowLayout, debloatObject.getRemovalLabel(), removalColor);
+        for (String tag : debloatObject.getTags()) addTag(mFlowLayout, "[" + tag + "]");
     }
 
     private void updateDialog(@Nullable List<SuggestionObject> suggestionObjects) {

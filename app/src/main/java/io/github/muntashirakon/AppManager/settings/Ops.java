@@ -49,6 +49,7 @@ import io.github.muntashirakon.AppManager.adb.AdbPairingService;
 import io.github.muntashirakon.AppManager.adb.AdbUtils;
 import io.github.muntashirakon.AppManager.compat.ManifestCompat;
 import io.github.muntashirakon.AppManager.ipc.LocalServices;
+import io.github.muntashirakon.AppManager.ipc.ShizukuBackend;
 import io.github.muntashirakon.AppManager.logs.Log;
 import io.github.muntashirakon.AppManager.misc.NoOps;
 import io.github.muntashirakon.AppManager.runner.RunnerUtils;
@@ -77,10 +78,12 @@ import io.github.muntashirakon.dialog.TextInputDialogBuilder;
 public class Ops {
     public static final String TAG = Ops.class.getSimpleName();
 
-    @StringDef({MODE_AUTO, MODE_ROOT, MODE_ADB_OVER_TCP, MODE_ADB_WIFI, MODE_NO_ROOT})
+    @StringDef({MODE_AUTO, MODE_ROOT, MODE_ADB_OVER_TCP, MODE_ADB_WIFI, MODE_NO_ROOT, MODE_SHIZUKU})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Mode {
     }
+
+    public static final String MODE_SHIZUKU = "shizuku";
 
     public static final String MODE_AUTO = "auto";
     public static final String MODE_ROOT = "root";
@@ -89,6 +92,8 @@ public class Ops {
     public static final String MODE_NO_ROOT = "no-root";
 
     @IntDef({
+            STATUS_SHIZUKU_PERMISSION_REQUIRED,
+            STATUS_SHIZUKU_UNAVAILABLE,
             STATUS_SUCCESS,
             STATUS_FAILURE,
             STATUS_AUTO_CONNECT_WIRELESS_DEBUGGING,
@@ -100,6 +105,9 @@ public class Ops {
     @Retention(RetentionPolicy.SOURCE)
     public @interface Status {
     }
+
+    public static final int STATUS_SHIZUKU_PERMISSION_REQUIRED = 7;
+    public static final int STATUS_SHIZUKU_UNAVAILABLE = 8;
 
     public static final int STATUS_SUCCESS = 0;
     public static final int STATUS_FAILURE = 1;
@@ -116,15 +124,15 @@ public class Ops {
 
     private static volatile int sWorkingUid = Process.myUid();
     private static volatile boolean sDirectRoot = false; // AM has root AND that root is being used
-    private static boolean sIsAdb = false; // UID = 2000
-    private static boolean sIsSystem = false; // UID = 1000
-    private static boolean sIsRoot = false; // UID = 0
+    private static volatile boolean sIsAdb = false; // UID = 2000
+    private static volatile boolean sIsSystem = false; // UID = 1000
+    private static volatile boolean sIsRoot = false; // UID = 0
     private static final ReentrantLock sTransitionLock = new ReentrantLock(true);
 
     // Security
     private static final Object sSecurityLock = new Object();
     @GuardedBy("sSecurityLock")
-    private static boolean sIsAuthenticated = false;
+    private static volatile boolean sIsAuthenticated = false;
 
     private Ops() {
     }
@@ -274,6 +282,7 @@ public class Ops {
 
     private static boolean isValidMode(@NonNull String mode) {
         switch (mode) {
+            case MODE_SHIZUKU:
             case MODE_AUTO:
             case MODE_ROOT:
             case MODE_ADB_OVER_TCP:
@@ -300,7 +309,8 @@ public class Ops {
     @Status
     private static int initLocked(@NonNull Context context, boolean force) {
         String mode = getMode();
-        sDirectRoot = hasRoot();
+        boolean directRootAvailable = (MODE_AUTO.equals(mode) || MODE_ROOT.equals(mode)) && hasRoot();
+        sDirectRoot = directRootAvailable;
         if (MODE_AUTO.equals(mode)) {
             autoDetectRootSystemOrAdbAndPersist(context);
             return sIsAdb ? STATUS_SUCCESS : initPermissionsWithSuccess();
@@ -312,6 +322,10 @@ public class Ops {
         if (MODE_ADB_OVER_TCP.equals(mode) || MODE_ADB_WIFI.equals(mode)) {
             sDirectRoot = false;
         }
+        if (MODE_SHIZUKU.equals(mode)) {
+            return initShizuku(context, force);
+        }
+        if (ShizukuBackend.isBound()) LocalServices.stopServices();
         if (!force && isAMServiceUpAndRunning(context, mode)) {
             // An instance of AMService is already running
             return sIsAdb ? STATUS_SUCCESS : initPermissionsWithSuccess();
@@ -323,6 +337,7 @@ public class Ops {
         try {
             switch (mode) {
                 case MODE_ROOT:
+                    sDirectRoot = directRootAvailable;
                     if (!sDirectRoot) {
                         throw new Exception("Root is unavailable.");
                     }
@@ -372,6 +387,27 @@ public class Ops {
         return STATUS_FAILURE;
     }
 
+    @Status
+    private static int initShizuku(@NonNull Context context, boolean force) {
+        sDirectRoot = false;
+        if (force || !ShizukuBackend.alive()) LocalServices.stopServices();
+        if (!ShizukuBackend.isAvailable()) return STATUS_SHIZUKU_UNAVAILABLE;
+        if (!ShizukuBackend.hasPermission()) return STATUS_SHIZUKU_PERMISSION_REQUIRED;
+        try {
+            LocalServices.bindServicesIfNotAlready();
+            int uid = Users.getSelfOrRemoteUid();
+            if (uid != ROOT_UID && uid != SHELL_UID) throw new RemoteException("Unexpected Shizuku UID");
+            sIsRoot = uid == ROOT_UID;
+            sIsAdb = uid == SHELL_UID;
+            sIsSystem = false;
+            return initPermissionsWithSuccess();
+        } catch (RemoteException | RuntimeException e) {
+            Log.e(TAG, "Could not initialize Shizuku", e);
+            LocalServices.stopServices();
+            return STATUS_FAILURE;
+        }
+    }
+
     /**
      * Whether App Manager has been granted root permission.
      *
@@ -407,7 +443,8 @@ public class Ops {
                 LocalServices.stopServices();
             }
             try {
-                // Service is confirmed dead
+                // Service is confirmed dead. Cleanup must not change the requested launch identity.
+                sDirectRoot = true;
                 LocalServices.bindServices();
                 if (LocalServices.alive() && Users.getSelfOrRemoteUid() == ROOT_UID) {
                     // Service is running in root
@@ -977,7 +1014,7 @@ public class Ops {
         if (LocalServices.alive()) {
             // AM service is running
             int uid = Users.getSelfOrRemoteUid();
-            if (sIsRoot && uid == ROOT_UID) {
+            if (MODE_ROOT.equals(mode) && uid == ROOT_UID) {
                 // AM service is running as root
                 return true;
             }
@@ -987,7 +1024,7 @@ public class Ops {
                 sIsRoot = sIsAdb = false;
                 return true;
             }
-            if (sIsAdb) {
+            if (!MODE_ROOT.equals(mode)) {
                 // AM service is running as ADB
                 return checkRootOrIncompleteUsbDebuggingInAdb(context) == STATUS_SUCCESS;
             }
@@ -1014,6 +1051,8 @@ public class Ops {
             sIsRoot = sIsAdb = false;
             ThreadUtils.postOnMainThread(() -> UIUtils.displayLongToast(R.string.warning_working_on_system_mode));
         } else if (uid == SHELL_UID) { // ADB mode
+            sIsAdb = true;
+            sIsRoot = sIsSystem = false;
             if (!SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.GRANT_RUNTIME_PERMISSIONS)) {
                 // USB debugging is incomplete, revert back to no-root
                 fallbackToNoRoot(context);
@@ -1033,9 +1072,7 @@ public class Ops {
     static void fallbackToNoRoot(@NonNull Context context) {
         sTransitionLock.lock();
         try {
-            if (LocalServices.alive()) {
-                LocalServices.stopServices();
-            }
+            LocalServices.stopServices();
             if (LocalServer.checkServerHealth(context)) {
                 ExUtils.exceptionAsIgnored(() -> LocalServer.getInstance().closeBgServer());
             }

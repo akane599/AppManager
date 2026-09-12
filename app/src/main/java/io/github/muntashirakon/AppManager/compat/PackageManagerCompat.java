@@ -127,45 +127,38 @@ public final class PackageManagerCompat {
     @WorkerThread
     @NonNull
     public static List<PackageInfo> getInstalledPackages(int flags, @UserIdInt int userId) {
+        try {
+            return getInstalledPackagesRemote(flags, userId);
+        } catch (RuntimeException e) {
+            if (userId != UserHandleHidden.myUserId()) throw e;
+            Log.w(TAG, "Privileged package query failed; querying current user locally", e);
+            return ContextUtils.getContext().getPackageManager().getInstalledPackages(flags);
+        }
+    }
+
+    @NonNull
+    private static List<PackageInfo> getInstalledPackagesRemote(int flags, int userId) {
         IPackageManager pm = getPackageManager();
-        // Here we've compromised performance to fix issues in some devices where Binder transaction limit is too small.
-        List<PackageInfo> refPackages = getInstalledPackagesInternal(pm, flags & NEEDED_FLAGS, userId);
-        List<PackageInfo> packageInfoList = getInstalledPackagesInternal(pm, flags, userId);
-        if (packageInfoList.size() == refPackages.size()) {
-            // Everything's loaded correctly
-            return packageInfoList;
+        List<PackageInfo> references = getInstalledPackagesInternal(pm, flags & NEEDED_FLAGS, userId);
+        List<PackageInfo> detailed = getInstalledPackagesInternal(pm, flags, userId);
+        if (references.isEmpty() && detailed.isEmpty()) {
+            throw new IllegalStateException("Package service returned an empty snapshot for user " + userId);
         }
-        if (packageInfoList.size() > refPackages.size()) {
-            // Should never happen
-            Set<String> pkgsFromPkgInfo = new HashSet<>(packageInfoList.size());
-            Set<String> pkgsFromAppInfo = new HashSet<>(refPackages.size());
-            for (PackageInfo info : packageInfoList) pkgsFromPkgInfo.add(info.packageName);
-            for (PackageInfo info : refPackages) pkgsFromAppInfo.add(info.packageName);
-            pkgsFromPkgInfo.removeAll(pkgsFromAppInfo);
-            Log.i(TAG, "Loaded extra packages: " + pkgsFromPkgInfo.toString());
-            throw new IllegalStateException("Retrieved " + packageInfoList.size() + " packages out of "
-                    + refPackages.size() + " applications which is impossible");
-        }
-        Log.w(TAG, "Could not fetch installed packages for user %d using getInstalledPackages(), using workaround",
-                userId);
-        packageInfoList = new ArrayList<>(refPackages.size());
-        for (int i = 0; i < refPackages.size(); ++i) {
-            if (ThreadUtils.isInterrupted()) {
-                break;
-            }
-            String packageName = refPackages.get(i).packageName;
+        // Package installation/removal can race the two queries. Compare names, not counts.
+        java.util.Map<String, PackageInfo> packages = new java.util.LinkedHashMap<>();
+        for (PackageInfo info : detailed) packages.put(info.packageName, info);
+        for (PackageInfo reference : references) {
+            if (ThreadUtils.isInterrupted()) throw new android.os.OperationCanceledException();
+            if (packages.containsKey(reference.packageName)) continue;
             try {
-                packageInfoList.add(getPackageInfo(pm, packageName, flags, userId));
-            } catch (Exception ex) {
-                Log.e(TAG, "Could not retrieve package info for " + packageName + " and user " + userId);
-                continue;
-            }
-            if (i % 100 == 0) {
-                // Prevent DeadObjectException
-                SystemClock.sleep(300);
+                packages.put(reference.packageName, getPackageInfo(pm, reference.packageName, flags, userId));
+            } catch (PackageManager.NameNotFoundException e) {
+                // Confirmed uninstalled between queries.
+            } catch (RemoteException e) {
+                return ExUtils.rethrowFromSystemServer(e);
             }
         }
-        return packageInfoList;
+        return new ArrayList<>(packages.values());
     }
 
     @SuppressWarnings("deprecation")

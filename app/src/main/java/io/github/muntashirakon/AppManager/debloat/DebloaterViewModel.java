@@ -41,11 +41,17 @@ public class DebloaterViewModel extends AndroidViewModel {
 
     private final Map<String, int[]> mSelectedPackages = new HashMap<>();
     private final MutableLiveData<List<DebloatObject>> mDebloatObjectListLiveData = new MutableLiveData<>();
-    private final ExecutorService mExecutor = MultithreadedExecutor.getNewInstance();
+    private final ExecutorService mExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
 
     public DebloaterViewModel(@NonNull Application application) {
         super(application);
         mFilterFlags = AppPref.getInt(AppPref.PrefKey.PREF_DEBLOATER_FILTER_FLAGS_INT);
+    }
+
+    @Override
+    protected void onCleared() {
+        mExecutor.shutdownNow();
+        super.onCleared();
     }
 
     public boolean hasFilterFlag(@DebloaterListOptions.Filter int flag) {
@@ -184,6 +190,8 @@ public class DebloaterViewModel extends AndroidViewModel {
                     }
                     debloatObjects.add(debloatObject);
                 }
+            } else {
+                debloatObjects.addAll(mDebloatObjects);
             }
             if (TextUtils.isEmpty(mQueryString)) {
                 mDebloatObjectListLiveData.postValue(debloatObjects);

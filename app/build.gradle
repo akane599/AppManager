@@ -155,6 +155,8 @@ dependencies {
     implementation "com.j256.simplemagic:simplemagic:${simplemagic_version}"
 
     // Privileged
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
     implementation "com.github.MuntashirAkon:libadb-android:${libadb_version}"
     implementation "com.github.topjohnwu.libsu:core:${libsu_version}"
     implementation "org.lsposed.hiddenapibypass:hiddenapibypass:${hiddenapibypass_version}"

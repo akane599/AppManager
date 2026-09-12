@@ -159,12 +159,13 @@ public class DebloaterRecyclerViewAdapter extends MultiSelectionView.Adapter<Deb
                 removalRes = R.string.debloat_removal_unsafe;
                 break;
         }
-        sb.append(getColoredText(context.getString(removalRes), removalColor));
+        sb.append(getColoredText("[" + context.getString(debloatObject.getRemovalLabel()) + "]", removalColor));
+        for (String tag : debloatObject.getTags()) sb.append(" [").append(tag).append("]");
         if (!TextUtils.isEmpty(warning)) {
             sb.append(" — ").append(warning);
         }
         holder.iconView.setImageDrawable(icon);
-        holder.listTypeView.setText(debloatObject.type);
+        holder.listTypeView.setText("[" + debloatObject.getListLabel() + "]");
         holder.labelView.setText(UIUtils.getHighlightedText(debloatObject.getLabelOrPackageName().toString(), mSearchQuery, mQueryStringHighlightColor));
         holder.packageNameView.setText(UIUtils.getHighlightedText(debloatObject.packageName, mSearchQuery, mQueryStringHighlightColor));
         holder.descriptionView.setText(sb);

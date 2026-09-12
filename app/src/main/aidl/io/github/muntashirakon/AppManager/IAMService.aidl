@@ -16,4 +16,5 @@ interface IAMService {
     int getUid() = 12;
     void symlink(in String file, in String link) = 13;
     IBinder getService(in String serviceName) = 14;
+    IBinder getFileSystemService() = 15;
 }

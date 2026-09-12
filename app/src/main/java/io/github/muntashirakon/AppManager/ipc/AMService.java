@@ -75,6 +75,11 @@ public class AMService extends RootService {
         }
 
         @Override
+        public IBinder getFileSystemService() {
+            return io.github.muntashirakon.io.FileSystemManager.getService();
+        }
+
+        @Override
         public boolean onTransact(int code, @NonNull Parcel data, @Nullable Parcel reply, int flags) throws RemoteException {
             if (code == ProxyBinder.PROXY_BINDER_TRANSACTION) {
                 data.enforceInterface(IRootServiceManager.class.getName());
@@ -98,8 +103,11 @@ public class AMService extends RootService {
             try {
                 newData.appendFrom(data, data.dataPosition(), data.dataAvail());
                 long id = Binder.clearCallingIdentity();
-                targetBinder.transact(targetCode, newData, reply, targetFlags);
-                Binder.restoreCallingIdentity(id);
+                try {
+                    targetBinder.transact(targetCode, newData, reply, targetFlags);
+                } finally {
+                    Binder.restoreCallingIdentity(id);
+                }
             } catch (RemoteException e) {
                 throw e;
             } catch (Throwable th) {

@@ -111,7 +111,7 @@ public class StaticDataset {
     }
 
     @WorkerThread
-    public static List<DebloatObject> getDebloatObjects() {
+    public static synchronized List<DebloatObject> getDebloatObjects() {
         if (sDebloatObjects == null) {
             sDebloatObjects = loadDebloatObjects(ContextUtils.getContext(), new Gson());
         }
@@ -119,7 +119,7 @@ public class StaticDataset {
     }
 
     @WorkerThread
-    public static List<DebloatObject> getDebloatObjectsWithInstalledInfo(@NonNull Context context) {
+    public static synchronized List<DebloatObject> getDebloatObjectsWithInstalledInfo(@NonNull Context context) {
         AppDb appDb = new AppDb();
         if (sDebloatObjects == null) {
             sDebloatObjects = loadDebloatObjects(context, new Gson());
@@ -134,9 +134,9 @@ public class StaticDataset {
     @WorkerThread
     private static List<DebloatObject> loadDebloatObjects(@NonNull Context context, @NonNull Gson gson) {
         HashMap<String, List<SuggestionObject>> idSuggestionObjectsMap = loadSuggestions(context, gson);
-        String jsonContent = FileUtils.getContentFromAssets(context, "debloat.json");
+        String jsonContent = FileUtils.getContentFromAssets(context, "uad_lists.json");
         try {
-            List<DebloatObject> debloatObjects = Arrays.asList(gson.fromJson(jsonContent, DebloatObject[].class));
+            List<DebloatObject> debloatObjects = io.github.muntashirakon.AppManager.debloat.UadListParser.parse(jsonContent);
             int id = 0;
             for (DebloatObject debloatObject : debloatObjects) {
                 List<SuggestionObject> suggestionObjects = idSuggestionObjectsMap.get(debloatObject.getSuggestionId());

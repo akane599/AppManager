@@ -1573,4 +1573,12 @@
     <string name="manual_wireless_debugging_title">Connect using Wireless Debugging</string>
     <string name="launch_activity_dialog_title">Launch activity: action required</string>
     <string name="launch_activity_dialog_message">Android 5.x cannot trigger the <b>Search assistant</b> automatically. To open the activity, activate the Search assistant manually (usually by long-pressing the Home button). Tap <b>Close</b> after the activity opens to restore the original assistant.</string>
+    <string name="shizuku_mode" translatable="false">Shizuku</string>
+    <string name="shizuku_unavailable">Start Shizuku or Sui, then select Shizuku mode again. Shizuku mode requires Android 6 or later and Shizuku API 12 or later.</string>
+    <string name="shizuku_permission_message">Allow App Manager to use Shizuku for privileged operations. The available features depend on whether Shizuku was started with ADB or root.</string>
+    <string name="shizuku_permission_denied">Permission was denied. Allow App Manager in Shizuku’s authorized applications, then try again.</string>
+    <string name="uad_recommended" translatable="false">Recommended</string>
+    <string name="uad_advanced" translatable="false">Advanced</string>
+    <string name="uad_expert" translatable="false">Expert</string>
+    <string name="uad_unsafe" translatable="false">Unsafe</string>
 </resources>

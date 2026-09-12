@@ -155,7 +155,11 @@ public class AppDb {
 
     @WorkerThread
     public void loadInstalledOrBackedUpApplications(@NonNull Context context) {
-        getBackups(true);
+        try {
+            getBackups(true);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not refresh backups; loading installed applications", e);
+        }
         updateApplications(context);
     }
 
@@ -210,8 +214,14 @@ public class AppDb {
                                 | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
                                 | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS | MATCH_UNINSTALLED_PACKAGES
                                 | MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
-            } catch (RemoteException | PackageManager.NameNotFoundException | SecurityException e) {
-                // Package does not exist
+            } catch (PackageManager.NameNotFoundException e) {
+                // Only a confirmed missing package may remove its cached entry.
+            } catch (RemoteException | RuntimeException e) {
+                Log.w(TAG, "Could not refresh " + packageName + " for user " + userId, e);
+                if (oldAppIndex >= 0) {
+                    appList.add(oldApps.get(oldAppIndex));
+                }
+                continue;
             }
             if (backup == null && packageInfo == null) {
                 // Neither backup nor package exist
@@ -255,6 +265,7 @@ public class AppDb {
             List<App> modifiedApps = new ArrayList<>();
             Set<String> newApps = new HashSet<>();
             Set<String> updatedApps = new HashSet<>();
+            Set<Integer> refreshedUsers = new HashSet<>();
 
             // Interrupt thread on request
             if (ThreadUtils.isInterrupted()) return;
@@ -268,11 +279,21 @@ public class AppDb {
                     continue;
                 }
 
-                List<PackageInfo> packageInfoList = PackageManagerCompat.getInstalledPackages(
-                        GET_SIGNING_CERTIFICATES | PackageManager.GET_ACTIVITIES
-                                | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
-                                | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS
-                                | MATCH_UNINSTALLED_PACKAGES | MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
+                List<PackageInfo> packageInfoList;
+                try {
+                    packageInfoList = PackageManagerCompat.getInstalledPackages(
+                            GET_SIGNING_CERTIFICATES | PackageManager.GET_ACTIVITIES
+                                    | PackageManager.GET_RECEIVERS | PackageManager.GET_PROVIDERS
+                                    | PackageManager.GET_SERVICES | MATCH_DISABLED_COMPONENTS
+                                    | MATCH_UNINSTALLED_PACKAGES | MATCH_STATIC_SHARED_AND_SDK_LIBRARIES, userId);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "Keeping cached packages for unavailable user " + userId, e);
+                    continue;
+                }
+                if (ThreadUtils.isInterrupted()) return;
+                // A failed or empty Binder reply is not evidence that every app was removed.
+                if (packageInfoList.isEmpty()) continue;
+                refreshedUsers.add(userId);
 
                 for (PackageInfo packageInfo : packageInfoList) {
                     // Interrupt thread on request
@@ -324,9 +345,13 @@ public class AppDb {
                 newApps.add(app.packageName);
                 modifiedApps.add(app);
             }
-            // Add new data
-            mAppDao.delete(oldApps);
-            mAppDao.insert(modifiedApps);
+            // Preserve profiles that were not selected, were locked, or could not be queried.
+            oldApps.removeIf(app -> !refreshedUsers.contains(app.userId));
+            if (ThreadUtils.isInterrupted()) return;
+            AppsDb.getInstance().runInTransaction(() -> {
+                mAppDao.delete(oldApps);
+                mAppDao.insert(modifiedApps);
+            });
             if (!oldApps.isEmpty()) {
                 // Delete broadcast
                 BroadcastUtils.sendDbPackageRemoved(context, getPackageNamesFromApps(oldApps));
@@ -355,6 +380,14 @@ public class AppDb {
     }
 
     private static void updateVariableData(@NonNull Context context, @NonNull List<App> modifiedApps) {
+        try {
+            updateVariableDataInternal(context, modifiedApps);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Optional app metadata is unavailable; keeping package information", e);
+        }
+    }
+
+    private static void updateVariableDataInternal(@NonNull Context context, @NonNull List<App> modifiedApps) {
         UriManager uriManager = new UriManager();
         ArrayMap<Integer, SsaidSettings> userIdSsaidSettingsMap = new ArrayMap<>();
         List<PackageUsageInfo> packageUsageInfoList = new ArrayList<>();
