@@ -359,17 +359,26 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
     public void loadApplicationItems() {
         cancelIfRunning();
         mFilterResult = executor.submit(() -> {
-            List<ApplicationItem> updatedApplicationItems = PackageUtils
-                    .getInstalledOrBackedUpApplicationsFromDb(getApplication(), true, true);
-            synchronized (mApplicationItems) {
-                mApplicationItems.clear();
-                mApplicationItems.addAll(updatedApplicationItems);
-                // select apps again
-                for (ApplicationItem item : getSelectedApplicationItems()) {
-                    select(item);
+            try {
+                List<ApplicationItem> updatedApplicationItems = PackageUtils
+                        .getInstalledOrBackedUpApplicationsFromDb(getApplication(), true, true);
+                synchronized (mApplicationItems) {
+                    mApplicationItems.clear();
+                    mApplicationItems.addAll(updatedApplicationItems);
+                    // select apps again
+                    for (ApplicationItem item : getSelectedApplicationItems()) {
+                        select(item);
+                    }
+                    sortApplicationList(mSortBy, mReverseSort);
+                    filterItemsByFlags();
                 }
-                sortApplicationList(mSortBy, mReverseSort);
-                filterItemsByFlags();
+            } catch (RuntimeException e) {
+                if (ThreadUtils.isInterrupted()) return;
+                Log.e("MainViewModel", "Could not refresh the app list", e);
+                synchronized (mApplicationItems) {
+                    mApplicationItemsLiveData.postValue(new ArrayList<>(mApplicationItems));
+                }
+                mOperationStatus.postValue(false);
             }
         });
     }

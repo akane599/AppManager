@@ -24,6 +24,7 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.IntDef;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.StringDef;
 import androidx.annotation.UiThread;
@@ -986,7 +987,12 @@ public class Ops {
     }
 
     private static int initPermissionsWithSuccess() {
-        SelfPermissions.init();
+        try {
+            SelfPermissions.init();
+        } catch (RuntimeException e) {
+            // Permission setup is best-effort; capability checks still gate each operation.
+            Log.w(TAG, "Optional app permissions could not be initialized", e);
+        }
         return STATUS_SUCCESS;
     }
 

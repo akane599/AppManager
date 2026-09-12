@@ -116,6 +116,7 @@ public final class ShadowOpsDependencies {
 
         @Implementation
         public static void init() {
+            if (usagePermissionFailure) throw new SecurityException("OEM denied optional grant");
         }
     }
 

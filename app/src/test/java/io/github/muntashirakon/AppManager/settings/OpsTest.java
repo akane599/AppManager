@@ -241,4 +241,20 @@ public class OpsTest {
         assertFalse(ShadowServices.alive);
         assertEquals(Ops.MODE_SHIZUKU, Ops.getMode());
     }
+    @Test
+    public void optionalPermissionSetupFailureKeepsValidatedAdbBackend() {
+        ShadowPermissions.usagePermissionFailure = true;
+        Ops.setMode(Ops.MODE_ADB_OVER_TCP);
+        assertEquals(Ops.STATUS_SUCCESS, Ops.init(mContext, true));
+        assertTrue(Ops.isAdb());
+        assertEquals(Ops.SHELL_UID, Ops.getWorkingUid());
+    }
+
+    @Test
+    @Config(sdk = 22)
+    public void shizukuIsUnavailableOnAndroid5WithoutCallingItsApi() {
+        Ops.setMode(Ops.MODE_SHIZUKU);
+        assertEquals(Ops.STATUS_SHIZUKU_UNAVAILABLE, Ops.init(mContext, true));
+        assertEquals(Process.myUid(), Ops.getWorkingUid());
+    }
 }

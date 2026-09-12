@@ -129,6 +129,8 @@ public final class PackageManagerCompat {
     public static List<PackageInfo> getInstalledPackages(int flags, @UserIdInt int userId) {
         try {
             return getInstalledPackagesRemote(flags, userId);
+        } catch (android.os.OperationCanceledException e) {
+            throw e;
         } catch (RuntimeException e) {
             if (userId != UserHandleHidden.myUserId()) throw e;
             Log.w(TAG, "Privileged package query failed; querying current user locally", e);
@@ -140,10 +142,10 @@ public final class PackageManagerCompat {
     private static List<PackageInfo> getInstalledPackagesRemote(int flags, int userId) {
         IPackageManager pm = getPackageManager();
         List<PackageInfo> references = getInstalledPackagesInternal(pm, flags & NEEDED_FLAGS, userId);
-        List<PackageInfo> detailed = getInstalledPackagesInternal(pm, flags, userId);
-        if (references.isEmpty() && detailed.isEmpty()) {
+        if (references.isEmpty()) {
             throw new IllegalStateException("Package service returned an empty snapshot for user " + userId);
         }
+        List<PackageInfo> detailed = getInstalledPackagesInternal(pm, flags, userId);
         // Package installation/removal can race the two queries. Compare names, not counts.
         java.util.Map<String, PackageInfo> packages = new java.util.LinkedHashMap<>();
         for (PackageInfo info : detailed) packages.put(info.packageName, info);
