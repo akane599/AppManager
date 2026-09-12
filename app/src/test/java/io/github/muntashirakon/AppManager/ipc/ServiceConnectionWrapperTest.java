@@ -72,4 +72,38 @@ public class ServiceConnectionWrapperTest {
         assertFalse(wrapper.isBinderActive());
         assertEquals(1, deaths.get());
     }
+    @Test
+    public void capabilityReadDoesNotWaitForTheBindingMonitor() throws Exception {
+        Object monitor = org.robolectric.util.ReflectionHelpers.getStaticField(
+                LocalServices.class, "sAMServiceConnectionWrapper");
+        java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        Thread binderThread = new Thread(() -> {
+            synchronized (monitor) {
+                locked.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        binderThread.start();
+        assertTrue(locked.await(1, TimeUnit.SECONDS));
+        FutureTask<Boolean> read = new FutureTask<>(() -> {
+            try {
+                LocalServices.getAmService();
+                return false;
+            } catch (android.os.RemoteException expected) {
+                return true;
+            }
+        });
+        new Thread(read).start();
+        try {
+            assertTrue(read.get(1, TimeUnit.SECONDS));
+        } finally {
+            release.countDown();
+            binderThread.join(1000);
+        }
+    }
 }

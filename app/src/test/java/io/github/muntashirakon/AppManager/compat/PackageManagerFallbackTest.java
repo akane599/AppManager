@@ -4,7 +4,8 @@ package io.github.muntashirakon.AppManager.compat;
 import static org.junit.Assert.*;
 
 import android.content.pm.ApplicationInfo;
-import android.content.pm.IPackageManager;
+import android.os.IBinder;
+import io.github.muntashirakon.AppManager.ipc.ProxyBinder;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.UserHandleHidden;
@@ -23,12 +24,12 @@ import java.util.List;
 import io.github.muntashirakon.AppManager.settings.Ops;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(sdk = 28, shadows = PackageManagerFallbackTest.DeniedRemotePackageManager.class)
+@Config(sdk = 28, shadows = PackageManagerFallbackTest.DeniedPackageService.class)
 public class PackageManagerFallbackTest {
-    @Implements(PackageManagerCompat.class)
-    public static class DeniedRemotePackageManager {
+    @Implements(ProxyBinder.class)
+    public static class DeniedPackageService {
         @Implementation
-        public static IPackageManager getPackageManager() {
+        public static IBinder getService(String name) {
             throw new SecurityException("OEM denied the shell package query");
         }
     }
