@@ -3,13 +3,13 @@ package io.github.muntashirakon.AppManager.servermanager;
 
 import static org.junit.Assert.*;
 
-import android.content.Context;
 import android.content.SharedPreferences;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.util.ReflectionHelpers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -17,13 +17,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import io.github.muntashirakon.AppManager.utils.ContextUtils;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28)
 public class ServerConfigTokenTest {
     private SharedPreferences prefs() {
-        return ContextUtils.getContext().getSharedPreferences("server_config", Context.MODE_PRIVATE);
+        // Robolectric resets ContextImpl caches between methods; use the process-scoped
+        // preference instance actually held by ServerConfig, initialized on this test thread.
+        return ReflectionHelpers.getStaticField(ServerConfig.class, "sPreferences");
     }
 
     @After

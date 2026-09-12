@@ -45,8 +45,8 @@ jobs:
             native-tests/run-server-test "$RUNNER_TEMP"
           fi
 
-      - name: Test and build APK
-        run: bash ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Lint, test and build APK
+        run: bash ./gradlew --no-daemon --stacktrace lintDebug :app:testDebugUnitTest :app:assembleDebug
 
       - name: Upload test reports
         if: always()

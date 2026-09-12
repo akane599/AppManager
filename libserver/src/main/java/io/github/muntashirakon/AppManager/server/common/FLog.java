@@ -2,11 +2,12 @@
 
 package io.github.muntashirakon.AppManager.server.common;
 
+import android.os.Build;
+import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
-import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import java.io.File;
@@ -30,8 +31,12 @@ public class FLog {
             if (writeLog && fos == null && sErrorCount.get() < 5) {
                 File file = new File("/data/local/tmp/am.txt");
                 // A shell-writable pathname must never redirect a root logger through a link.
-                descriptor = Os.open(file.getAbsolutePath(), OsConstants.O_WRONLY | OsConstants.O_CREAT
-                        | OsConstants.O_NOFOLLOW | OsConstants.O_CLOEXEC | OsConstants.O_NONBLOCK, 0600);
+                int flags = OsConstants.O_WRONLY | OsConstants.O_CREAT
+                        | OsConstants.O_NOFOLLOW | OsConstants.O_NONBLOCK;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) flags |= OsConstants.O_CLOEXEC;
+                descriptor = Os.open(file.getAbsolutePath(), flags, 0600);
+                // O_CLOEXEC is not exposed by the public API before Android 8.1.
+                Os.fcntlInt(descriptor, OsConstants.F_SETFD, OsConstants.FD_CLOEXEC);
                 StructStat stat = Os.fstat(descriptor);
                 if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_nlink != 1) {
                     throw new IOException("Log destination is not a single regular file.");
@@ -44,6 +49,7 @@ public class FLog {
                 }
                 Os.ftruncate(descriptor, 0);
                 fos = new ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(descriptor));
+                Os.fcntlInt(fos.getFD(), OsConstants.F_SETFD, OsConstants.FD_CLOEXEC);
 
                 fos.write("\n\n\n--------------------".getBytes());
                 fos.write(new Date().toString().getBytes());
