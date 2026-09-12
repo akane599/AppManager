@@ -330,6 +330,10 @@ public class AppDb {
                 if (ThreadUtils.isInterrupted()) return;
 
                 int oldAppIndex = findIndexOfApp(oldApps, backup.packageName, backup.userId);
+                if (oldAppIndex >= 0 && !refreshedUsers.contains(backup.userId)) {
+                    // A backup must not replace cached installed state for an unavailable profile.
+                    continue;
+                }
                 if (oldAppIndex >= 0) {
                     // There's already existing app
                     App oldApp = oldApps.remove(oldAppIndex);
