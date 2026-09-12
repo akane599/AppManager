@@ -1,6 +1,6 @@
 # ADB startup, Shizuku, and UAD-ng
 
-The package database must not depend on a successful privileged metadata query. Current-user package enumeration falls back to the app's PackageManager when a privileged query fails. Unavailable or unselected profiles retain their cached entries. Failed individual queries are not interpreted as uninstallations. Optional metadata and backup enumeration failures are logged while the basic package list is retained.
+The package database must not depend on a successful privileged metadata query. Current-user package enumeration falls back to the app's PackageManager when a privileged query fails. Unavailable or unselected profiles retain their cached entries. Failed individual queries are not interpreted as uninstallations. Optional metadata and backup enumeration failures are logged while the basic package list is retained. Tracker matching uses a Java fallback when the native accelerator cannot load; search/close operations are serialized to prevent freeing native state during a scan.
 
 Service connections use a separate callback and completion latch per attempt. Unbinding clears stale binders; late callbacks cannot complete a newer attempt. Capability reads never wait for a binding lock on the UI thread. Loss of the ADB transport does not discard still-live Binder services, and old ADB broadcasts cannot replace Shizuku/root sessions. Rebinding preserves the launch identity, and forced transitions restore direct-root state after cleanup. Proxy transactions restore Binder calling identity even when the target throws.
 

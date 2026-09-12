@@ -133,7 +133,7 @@ public class Ops {
     // Security
     private static final Object sSecurityLock = new Object();
     @GuardedBy("sSecurityLock")
-    private static volatile boolean sIsAuthenticated = false;
+    private static boolean sIsAuthenticated = false;
 
     private Ops() {
     }
@@ -310,6 +310,7 @@ public class Ops {
     @Status
     private static int initLocked(@NonNull Context context, boolean force) {
         String mode = getMode();
+        if (ShizukuBackend.isBound() && !MODE_SHIZUKU.equals(mode)) LocalServices.stopServices();
         boolean directRootAvailable = (MODE_AUTO.equals(mode) || MODE_ROOT.equals(mode)) && hasRoot();
         sDirectRoot = directRootAvailable;
         if (MODE_AUTO.equals(mode)) {
@@ -326,7 +327,6 @@ public class Ops {
         if (MODE_SHIZUKU.equals(mode)) {
             return initShizuku(context, force);
         }
-        if (ShizukuBackend.isBound()) LocalServices.stopServices();
         if (!force && isAMServiceUpAndRunning(context, mode)) {
             // An instance of AMService is already running
             return sIsAdb ? STATUS_SUCCESS : initPermissionsWithSuccess();

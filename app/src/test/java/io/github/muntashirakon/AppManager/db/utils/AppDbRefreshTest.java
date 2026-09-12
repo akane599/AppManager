@@ -32,6 +32,7 @@ import io.github.muntashirakon.AppManager.db.entity.Backup;
 import io.github.muntashirakon.AppManager.self.SelfPermissions;
 import io.github.muntashirakon.AppManager.users.Users;
 
+@org.robolectric.annotation.SQLiteMode(org.robolectric.annotation.SQLiteMode.Mode.LEGACY)
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 28, shadows = {AppDbRefreshTest.Profiles.class, AppDbRefreshTest.Packages.class,
         AppDbRefreshTest.Permissions.class, AppDbRefreshTest.OptionalMetadata.class})

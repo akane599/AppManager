@@ -89,18 +89,17 @@ public class StaticDataset {
         return ContextUtils.getContext().getResources().getStringArray(R.array.tracker_signatures);
     }
 
-    public static AhoCorasick getSearchableTrackerSignatures() {
+    public static synchronized AhoCorasick getSearchableTrackerSignatures() {
         if (sAhoCorasickTrackerCache == null) {
             sAhoCorasickTrackerCache = new AhoCorasick(getTrackerCodeSignatures());
         }
         return sAhoCorasickTrackerCache;
     }
 
-    public static void cleanup() {
-        if (sAhoCorasickTrackerCache != null) {
-            sAhoCorasickTrackerCache.close();
-            sAhoCorasickTrackerCache = null;
-        }
+    public static synchronized void cleanup() {
+        // Scanners can still hold this instance. Its finalizer releases native memory once
+        // those searches finish; closing a borrowed matcher here invalidates active scans.
+        sAhoCorasickTrackerCache = null;
     }
 
     public static String[] getTrackerNames() {

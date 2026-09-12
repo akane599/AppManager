@@ -366,7 +366,7 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
                     mApplicationItems.clear();
                     mApplicationItems.addAll(updatedApplicationItems);
                     // select apps again
-                    for (ApplicationItem item : getSelectedApplicationItems()) {
+                    for (ApplicationItem item : new ArrayList<>(getSelectedApplicationItems())) {
                         select(item);
                     }
                     sortApplicationList(mSortBy, mReverseSort);

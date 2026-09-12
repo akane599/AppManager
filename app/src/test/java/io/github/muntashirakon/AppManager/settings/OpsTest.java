@@ -251,8 +251,10 @@ public class OpsTest {
     }
 
     @Test
-    @Config(sdk = 22)
     public void shizukuIsUnavailableOnAndroid5WithoutCallingItsApi() {
+        // Robolectric 4.16 no longer provides an Android 5 runtime. Exercise the version guard
+        // without trying to download an unsupported SDK image.
+        ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", 22);
         Ops.setMode(Ops.MODE_SHIZUKU);
         assertEquals(Ops.STATUS_SHIZUKU_UNAVAILABLE, Ops.init(mContext, true));
         assertEquals(Process.myUid(), Ops.getWorkingUid());
