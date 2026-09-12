@@ -6,7 +6,7 @@
 4. Click **Run workflow**. When it succeeds, open the run and download the `AppManager-debug-…` artifact from **Artifacts** or the download link in the job summary.
 5. Extract the ZIP and install the APK. SHA-256 checksums are included.
 
-The workflow builds `:app:assembleDebug` with Java 21 and recursive submodules. The APK uses the repository's development key and installs as **AM Debug**, alongside the regular app. No signing secrets need to be configured. The source commit is included in the artifact and APK filenames, and downloads are retained for 30 days.
+The workflow runs `:app:testDebugUnitTest` and builds `:app:assembleDebug` with Java 21 and recursive submodules. An APK is uploaded only when tests and the build pass. The APK uses the repository's development key and installs as **AM Debug**, alongside the regular app. No signing secrets need to be configured. The source commit is included in the artifact and APK filenames, and downloads are retained for 30 days.
 
 The workflow is available on `master` and `fix/adb-stability-shizuku-uad`. GitHub requires the workflow file to exist in the branch selected under **Use workflow from**. For another branch that does not contain the file, keep the workflow branch on `master` and enter that branch in the source-ref field instead.
 
