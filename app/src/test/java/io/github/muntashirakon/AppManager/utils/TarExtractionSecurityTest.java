@@ -14,8 +14,8 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
-import org.robolectric.shadows.ShadowLinux;
 
+import android.system.Os;
 import android.system.ErrnoException;
 import android.system.OsConstants;
 
@@ -30,7 +30,7 @@ import io.github.muntashirakon.io.Path;
 import io.github.muntashirakon.io.Paths;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(shadows = TarExtractionSecurityTest.LinkAwareLinux.class)
+@Config(shadows = TarExtractionSecurityTest.LinkAwareOs.class)
 public class TarExtractionSecurityTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
@@ -101,10 +101,10 @@ public class TarExtractionSecurityTest {
         TarUtils.extract(TarUtils.TAR_GZIP, new Path[]{Paths.get(tar)}, Paths.get(dest), null, exclusions, null);
     }
     /** Robolectric's Linux shadow leaves symlink creation as a no-op; use real host links. */
-    @Implements(className = "libcore.io.Linux", isInAndroidSdk = false)
-    public static class LinkAwareLinux extends ShadowLinux {
+    @Implements(Os.class)
+    public static class LinkAwareOs {
         @Implementation
-        protected void symlink(String target, String link) throws ErrnoException {
+        protected static void symlink(String target, String link) throws ErrnoException {
             try {
                 Files.createSymbolicLink(java.nio.file.Paths.get(link), java.nio.file.Paths.get(target));
             } catch (java.nio.file.FileAlreadyExistsException e) {

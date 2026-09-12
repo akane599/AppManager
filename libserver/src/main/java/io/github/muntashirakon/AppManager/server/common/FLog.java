@@ -2,8 +2,6 @@
 
 package io.github.muntashirakon.AppManager.server.common;
 
-import android.os.Build;
-import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -19,6 +17,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 // Copyright 2017 Zheng Li
 public class FLog {
+    // Linux UAPI value on Android's supported ABIs; OsConstants exposes it only since API 27.
+    // https://android.googlesource.com/platform/bionic/+/main/libc/kernel/uapi/asm-generic/fcntl.h
+    private static final int O_CLOEXEC = 02000000;
 
     public static volatile boolean writeLog = false;
     private static FileOutputStream fos;
@@ -32,11 +33,8 @@ public class FLog {
                 File file = new File("/data/local/tmp/am.txt");
                 // A shell-writable pathname must never redirect a root logger through a link.
                 int flags = OsConstants.O_WRONLY | OsConstants.O_CREAT
-                        | OsConstants.O_NOFOLLOW | OsConstants.O_NONBLOCK;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) flags |= OsConstants.O_CLOEXEC;
+                        | OsConstants.O_NOFOLLOW | O_CLOEXEC | OsConstants.O_NONBLOCK;
                 descriptor = Os.open(file.getAbsolutePath(), flags, 0600);
-                // O_CLOEXEC is not exposed by the public API before Android 8.1.
-                Os.fcntlInt(descriptor, OsConstants.F_SETFD, OsConstants.FD_CLOEXEC);
                 StructStat stat = Os.fstat(descriptor);
                 if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_nlink != 1) {
                     throw new IOException("Log destination is not a single regular file.");
@@ -48,8 +46,8 @@ public class FLog {
                     e.printStackTrace();
                 }
                 Os.ftruncate(descriptor, 0);
-                fos = new ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(descriptor));
-                Os.fcntlInt(fos.getFD(), OsConstants.F_SETFD, OsConstants.FD_CLOEXEC);
+                fos = new OwnedFileOutputStream(descriptor);
+                descriptor = null; // Ownership transferred to the stream, without duplicating the fd.
 
                 fos.write("\n\n\n--------------------".getBytes());
                 fos.write(new Date().toString().getBytes());
@@ -122,6 +120,30 @@ public class FLog {
                 fos = null;
             }
             sBufferSize.set(0);
+        }
+    }
+    private static final class OwnedFileOutputStream extends FileOutputStream {
+        private final FileDescriptor mDescriptor;
+
+        OwnedFileOutputStream(FileDescriptor descriptor) {
+            super(descriptor);
+            mDescriptor = descriptor;
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                super.close();
+            } finally {
+                // Android's FileOutputStream(FileDescriptor) does not own/close the descriptor.
+                if (mDescriptor.valid()) {
+                    try {
+                        Os.close(mDescriptor);
+                    } catch (ErrnoException e) {
+                        throw new IOException(e);
+                    }
+                }
+            }
         }
     }
 
