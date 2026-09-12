@@ -927,7 +927,8 @@ public class Ops {
     }
 
     @UiThread
-    public static void displayIncompleteUsbDebuggingMessage(@NonNull FragmentActivity activity) {
+    public static void displayIncompleteUsbDebuggingMessage(@NonNull FragmentActivity activity,
+                                                            @Nullable Runnable onDismiss) {
         new ScrollableDialogBuilder(activity)
                 .setTitle(R.string.adb_incomplete_usb_debugging_title)
                 .setMessage(R.string.adb_incomplete_usb_debugging_message)
@@ -940,6 +941,9 @@ public class Ops {
                         activity.startActivity(intent);
                     } catch (Throwable ignore) {
                     }
+                })
+                .setOnDismissListener(dialog -> {
+                    if (onDismiss != null) onDismiss.run();
                 })
                 .show();
     }
