@@ -137,6 +137,25 @@ public class PermissionOverrideReconcilerTest {
         assertTrue(dao.values().isEmpty());
     }
 
+    @Test
+    public void databaseFailureDoesNotCrashWorkerOrStrandOtherPackages() {
+        FakeDao dao = new FakeDao();
+        dao.insert(override(false));
+        dao.insert(new PermissionOverride("second.package", 0, "android.permission.INTERNET", false, "7"));
+        dao.failingPackage = PACKAGE_NAME;
+        FakePlatform platform = new FakePlatform();
+        java.util.ArrayDeque<Runnable> tasks = new java.util.ArrayDeque<>();
+        PermissionOverrideReconciler reconciler = new PermissionOverrideReconciler(dao, platform, tasks::add);
+        reconciler.reconcileAll();
+        while (!tasks.isEmpty()) tasks.remove().run();
+        assertEquals(1, platform.applyCount);
+        assertEquals("second.package", platform.lastOverride.packageName);
+        dao.failingPackage = null;
+        reconciler.reconcile(PACKAGE_NAME, 0);
+        while (!tasks.isEmpty()) tasks.remove().run();
+        assertEquals(2, platform.applyCount);
+    }
+
     private static PermissionOverride override(boolean granted) {
         return override(0, granted);
     }
@@ -146,6 +165,7 @@ public class PermissionOverrideReconcilerTest {
     }
 
     private static final class FakeDao implements PermissionOverrideDao {
+        String failingPackage;
         private final Map<String, PermissionOverride> values = new LinkedHashMap<>();
 
         @Override
@@ -155,6 +175,7 @@ public class PermissionOverrideReconcilerTest {
 
         @Override
         public List<PermissionOverride> getForPackage(String packageName, int userId) {
+            if (packageName.equals(failingPackage)) throw new IllegalStateException("Database unavailable");
             List<PermissionOverride> result = new ArrayList<>();
             for (PermissionOverride value : values.values()) {
                 if (value.packageName.equals(packageName) && value.userId == userId)

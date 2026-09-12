@@ -53,7 +53,7 @@ public final class PermissionOverrideReconciler {
             if (!mQueuedKeys.add(key)) return;
         }
         try {
-            mExecutor.execute(() -> {
+            execute(() -> {
                 // Only coalesce waiting work. A change during this run needs a subsequent run.
                 synchronized (mQueuedKeys) {
                     mQueuedKeys.remove(key);
@@ -69,7 +69,7 @@ public final class PermissionOverrideReconciler {
     }
 
     public void reconcileAll() {
-        mExecutor.execute(() -> {
+        execute(() -> {
             Set<UserPackagePair> targets = new LinkedHashSet<>();
             for (PermissionOverride override : mDao.getAll()) {
                 targets.add(new UserPackagePair(override.packageName, override.userId));
@@ -81,7 +81,7 @@ public final class PermissionOverrideReconciler {
     }
 
     public void remove(@NonNull String packageName, int userId) {
-        mExecutor.execute(() -> removeNow(packageName, userId));
+        execute(() -> removeNow(packageName, userId));
     }
 
     void removeNow(@NonNull String packageName, int userId) {
@@ -118,6 +118,18 @@ public final class PermissionOverrideReconciler {
                 updateSyncStatus(override);
             }
         }
+    }
+
+    private void execute(@NonNull Runnable task) {
+        mExecutor.execute(() -> {
+            try {
+                task.run();
+            } catch (RuntimeException e) {
+                // Database failures must not crash Android's entire process or prevent later
+                // reconciliation. Persisted pending overrides can be retried on the next event.
+                e.printStackTrace();
+            }
+        });
     }
 
     private void updateSyncStatus(@NonNull PermissionOverride override) {

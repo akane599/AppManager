@@ -9,10 +9,20 @@ on:
         required: false
         type: string
         default: ''
-  # Exercise the build when this workflow changes, including its initial addition.
+  # Keep test APKs current while fixes are developed; other branches remain manually selectable.
   push:
+    branches:
+      - 'fix/adb-stability-shizuku-uad'
     paths:
       - '.github/workflows/build-apk.yml'
+      - 'app/**'
+      - 'server/**'
+      - 'libserver/**'
+      - 'libcore/**'
+      - 'hiddenapi/**'
+      - '**/*.gradle'
+      - 'gradle/**'
+      - 'gradle.properties'
 
 permissions:
   contents: read

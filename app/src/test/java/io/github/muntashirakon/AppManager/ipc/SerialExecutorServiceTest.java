@@ -17,13 +17,13 @@ import java.util.concurrent.TimeUnit;
 
 public class SerialExecutorServiceTest {
     @Test
-    public void throwingTaskDoesNotStrandQueuedWork() {
+    public void throwingTaskIsContainedAndDoesNotStrandQueuedWork() {
         ArrayDeque<Runnable> workers = new ArrayDeque<>();
         SerialExecutorService executor = new SerialExecutorService(workers::add);
         List<Integer> completed = new ArrayList<>();
         executor.execute(() -> { throw new IllegalStateException("task failure"); });
         executor.execute(() -> completed.add(2));
-        assertThrows(IllegalStateException.class, () -> workers.remove().run());
+        workers.remove().run(); // Task failure is contained by the worker.
         workers.remove().run();
         assertEquals(Arrays.asList(2), completed);
     }

@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -61,7 +62,9 @@ public class SerialExecutorService extends AbstractExecutorService implements Ca
     private void scheduleWorker() {
         mScheduled = true;
         try {
-            mExecutor.execute(() -> call());
+            // Retain the original FutureTask containment: an asynchronous task failure must
+            // not reach Android's process-wide uncaught-exception handler.
+            mExecutor.execute(new FutureTask<>(this));
         } catch (RuntimeException e) {
             mScheduled = false;
             throw e;
