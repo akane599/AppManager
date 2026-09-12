@@ -30,7 +30,7 @@ public class RemoteProcessImpl extends IRemoteProcess.Stub {
     }
 
     @Override
-    public ParcelFileDescriptor getOutputStream() {
+    public synchronized ParcelFileDescriptor getOutputStream() {
         if (mOutputTransferThread == null) {
             mOutputTransferThread = new OutputTransferThread(mProcess);
             mOutputTransferThread.start();
@@ -43,14 +43,14 @@ public class RemoteProcessImpl extends IRemoteProcess.Stub {
     }
 
     @Override
-    public void closeOutputStream() {
+    public synchronized void closeOutputStream() {
         if (mOutputTransferThread != null) {
             mOutputTransferThread.interrupt();
         }
     }
 
     @Override
-    public ParcelFileDescriptor getInputStream() {
+    public synchronized ParcelFileDescriptor getInputStream() {
         if (mIn == null) {
             try {
                 InputTransferThread thread = new InputTransferThread(mProcess, false);
@@ -79,6 +79,7 @@ public class RemoteProcessImpl extends IRemoteProcess.Stub {
         try {
             return mProcess.waitFor();
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
     }

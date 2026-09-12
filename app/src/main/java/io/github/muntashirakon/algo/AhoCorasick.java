@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class AhoCorasick implements AutoCloseable {
     private static boolean nativeAvailable;
@@ -26,6 +27,8 @@ public class AhoCorasick implements AutoCloseable {
     private boolean closed;
 
     public AhoCorasick(String[] patterns) {
+        Objects.requireNonNull(patterns, "patterns");
+        for (String pattern : patterns) Objects.requireNonNull(pattern, "pattern");
         if (nativeAvailable) {
             try {
                 nativeInstanceId = createNative(patterns);
@@ -43,6 +46,7 @@ public class AhoCorasick implements AutoCloseable {
     /** Search returns pattern indices, including overlapping and repeated matches. */
     public synchronized int[] search(String text) {
         if (closed) throw new IllegalStateException("Instance already closed");
+        Objects.requireNonNull(text, "text");
         return fallback != null ? fallback.search(text) : searchNative(nativeInstanceId, text);
     }
 

@@ -27,6 +27,12 @@ public interface PermissionOverrideDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void insert(PermissionOverride override);
 
+    @Query("UPDATE permission_override SET sync_status = :status, sync_time = :time"
+            + " WHERE package_name = :packageName AND user_id = :userId AND permission_name = :permissionName"
+            + " AND desired_granted = :desiredGranted AND controller = :controller")
+    void updateSyncStatus(String packageName, int userId, String permissionName,
+                          boolean desiredGranted, String controller, int status, long time);
+
     @Query("DELETE FROM permission_override WHERE package_name = :packageName AND user_id = :userId AND permission_name = :permissionName")
     void delete(String packageName, int userId, String permissionName);
 

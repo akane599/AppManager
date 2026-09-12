@@ -355,6 +355,73 @@ public class DataTransmissionTest {
         }
     }
 
+    @Test
+    public void oversizedHandshakeFramesAreRejectedBeforeReadingPayload() throws Exception {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        DataOutputStream input = new DataOutputStream(bytes);
+        input.writeInt(65);
+        DataTransmission server = new DataTransmission(new java.io.ByteArrayOutputStream(),
+                new java.io.ByteArrayInputStream(bytes.toByteArray()), false);
+        IOException protocol = org.junit.Assert.assertThrows(IOException.class,
+                () -> server.shakeHands(TOKEN, DataTransmission.Role.Server));
+        assertEquals("Invalid message length: 65", protocol.getMessage());
+
+        bytes.reset();
+        input.writeInt(33);
+        DataTransmission client = new DataTransmission(new java.io.ByteArrayOutputStream(),
+                new java.io.ByteArrayInputStream(bytes.toByteArray()), false);
+        IOException proof = org.junit.Assert.assertThrows(IOException.class,
+                () -> client.shakeHands(TOKEN, DataTransmission.Role.Client));
+        assertEquals("Invalid message length: 33", proof.getMessage());
+    }
+
+    @Test
+    public void shortNonceIsRejected() throws Exception {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        DataOutputStream input = new DataOutputStream(bytes);
+        writeFrame(input, DataTransmission.PROTOCOL_VERSION.getBytes(StandardCharsets.UTF_8));
+        writeFrame(input, new byte[0]);
+        DataTransmission server = new DataTransmission(new java.io.ByteArrayOutputStream(),
+                new java.io.ByteArrayInputStream(bytes.toByteArray()), false);
+        IOException failure = org.junit.Assert.assertThrows(IOException.class,
+                () -> server.shakeHands(TOKEN, DataTransmission.Role.Server));
+        assertTrue(failure.getMessage().contains("authentication message length"));
+    }
+
+    @Test
+    public void concurrentWritersPreserveWholeFrames() throws Exception {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        DataTransmission transfer = new DataTransmission(bytes,
+                new java.io.ByteArrayInputStream(new byte[0]), false);
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        java.util.List<Future<?>> tasks = new java.util.ArrayList<>();
+        try {
+            for (int writer = 0; writer < 4; ++writer) {
+                final byte value = (byte) writer;
+                tasks.add(executor.submit(() -> {
+                    byte[] payload = new byte[128];
+                    java.util.Arrays.fill(payload, value);
+                    for (int i = 0; i < 100; ++i) transfer.sendMessage(payload);
+                    return null;
+                }));
+            }
+            for (Future<?> task : tasks) task.get(2, TimeUnit.SECONDS);
+            DataInputStream frames = new DataInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray()));
+            int[] counts = new int[4];
+            for (int i = 0; i < 400; ++i) {
+                assertEquals(128, frames.readInt());
+                int writer = frames.readUnsignedByte();
+                assertTrue(writer < 4);
+                for (int j = 1; j < 128; ++j) assertEquals(writer, frames.readUnsignedByte());
+                counts[writer]++;
+            }
+            assertArrayEquals(new int[]{100, 100, 100, 100}, counts);
+            assertEquals(-1, frames.read());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static byte[] readFrame(DataInputStream input) throws IOException {
         int length = input.readInt();
         byte[] frame = new byte[length];

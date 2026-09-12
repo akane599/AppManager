@@ -4,57 +4,72 @@ package io.github.muntashirakon.AppManager.server.common;
 
 import android.system.ErrnoException;
 import android.system.Os;
+import android.system.OsConstants;
+import android.system.StructStat;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // Copyright 2017 Zheng Li
 public class FLog {
 
-    public static boolean writeLog = false;
+    public static volatile boolean writeLog = false;
     private static FileOutputStream fos;
     private static final AtomicInteger sBufferSize = new AtomicInteger();
     private static final AtomicInteger sErrorCount = new AtomicInteger();
 
     private static void openFile() {
+        FileDescriptor descriptor = null;
         try {
             if (writeLog && fos == null && sErrorCount.get() < 5) {
                 File file = new File("/data/local/tmp/am.txt");
-                fos = new FileOutputStream(file);
+                // A shell-writable pathname must never redirect a root logger through a link.
+                descriptor = Os.open(file.getAbsolutePath(), OsConstants.O_WRONLY | OsConstants.O_CREAT
+                        | OsConstants.O_NOFOLLOW | OsConstants.O_CLOEXEC | OsConstants.O_NONBLOCK, 0600);
+                StructStat stat = Os.fstat(descriptor);
+                if (!OsConstants.S_ISREG(stat.st_mode) || stat.st_nlink != 1) {
+                    throw new IOException("Log destination is not a single regular file.");
+                }
+                Os.fchmod(descriptor, 0600);
+                try {
+                    Os.fchown(descriptor, 2000, 2000);
+                } catch (ErrnoException e) {
+                    e.printStackTrace();
+                }
+                Os.ftruncate(descriptor, 0);
+                fos = new ParcelFileDescriptor.AutoCloseOutputStream(ParcelFileDescriptor.dup(descriptor));
 
                 fos.write("\n\n\n--------------------".getBytes());
                 fos.write(new Date().toString().getBytes());
                 fos.write("\n\n".getBytes());
-                chown(file.getAbsolutePath(), 2000, 2000);
-                chmod(file.getAbsolutePath(), 0755);
             }
         } catch (Exception e) {
             e.printStackTrace();
             sErrorCount.incrementAndGet();
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (IOException ignored) {
+                }
+            }
             fos = null;
+        } finally {
+            if (descriptor != null) {
+                try {
+                    Os.close(descriptor);
+                } catch (ErrnoException ignored) {
+                }
+            }
         }
     }
 
-    private static void chown(String path, int uid, int gid) {
-        try {
-            Os.chown(path, uid, gid);
-        } catch (ErrnoException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private static void chmod(String path, int mode) {
-        try {
-            Os.chmod(path, mode);
-        } catch (ErrnoException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public static void log(String log) {
+    public static synchronized void log(String log) {
         if (writeLog) {
             System.out.println(log);
         } else {
@@ -84,16 +99,24 @@ public class FLog {
         log(Log.getStackTraceString(e));
     }
 
-    public static void close() {
+    public static synchronized void close() {
         try {
-            if (writeLog && fos != null) {
+            if (fos != null) {
                 fos.getFD().sync();
-                fos.close();
             }
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                fos = null;
+            }
+            sBufferSize.set(0);
         }
     }
 
 }
-

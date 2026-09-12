@@ -167,30 +167,30 @@ public class AppDb {
     public List<App> updateApplications(@NonNull Context context, @NonNull String[] packageNames) {
         synchronized (sLock) {
             List<App> appList = new ArrayList<>();
+            List<App> removedApps = new ArrayList<>();
             for (String packageName : packageNames) {
-                appList.addAll(updateApplicationInternal(context, packageName));
+                appList.addAll(updateApplicationInternal(context, packageName, removedApps));
             }
-            // Update usage and others
             updateVariableData(context, appList);
-            mAppDao.insert(appList);
+            // Gather package metadata before touching the cache. A failed refresh or insert
+            // must not leave previously visible apps deleted or expose a partial update.
+            AppsDb.getInstance().runInTransaction(() -> {
+                mAppDao.delete(removedApps);
+                mAppDao.insert(appList);
+            });
             return appList;
         }
     }
 
     @WorkerThread
     public List<App> updateApplication(@NonNull Context context, @NonNull String packageName) {
-        synchronized (sLock) {
-            List<App> appList = updateApplicationInternal(context, packageName);
-            // Update usage and others
-            updateVariableData(context, appList);
-            mAppDao.insert(appList);
-            return appList;
-        }
+        return updateApplications(context, new String[]{packageName});
     }
 
     @WorkerThread
     @NonNull
-    private List<App> updateApplicationInternal(@NonNull Context context, @NonNull String packageName) {
+    private List<App> updateApplicationInternal(@NonNull Context context, @NonNull String packageName,
+                                                @NonNull List<App> removedApps) {
         int[] userIds = Users.getUsersIds();
         List<App> oldApps = new ArrayList<>(mAppDao.getAll(packageName));
         List<App> appList = new ArrayList<>(userIds.length);
@@ -227,14 +227,13 @@ public class AppDb {
                 // Neither backup nor package exist
                 if (oldAppIndex >= 0) {
                     // Delete existing backup
-                    mAppDao.delete(oldApps.get(oldAppIndex));
+                    removedApps.add(oldApps.get(oldAppIndex));
                 }
                 continue;
             }
             if (oldAppIndex >= 0) {
                 // There's already existing app
                 App oldApp = oldApps.get(oldAppIndex);
-                mAppDao.delete(oldApp);
                 if ((packageInfo != null && isUpToDate(oldApp, packageInfo))
                         || (backup != null && isUpToDate(oldApp, backup))) {
                     // Up-to-date app

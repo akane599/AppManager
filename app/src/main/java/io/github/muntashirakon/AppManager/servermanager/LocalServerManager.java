@@ -17,6 +17,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
@@ -63,7 +64,7 @@ class LocalServerManager {
     @NonNull
     private final Context mContext;
     @Nullable
-    private ClientSession mSession;
+    private volatile ClientSession mSession;
 
     @AnyThread
     private LocalServerManager(@NonNull Context context) {
@@ -83,6 +84,7 @@ class LocalServerManager {
     private ClientSession getSession() throws IOException, AdbPairingRequiredException {
         synchronized (mLock) {
             if (mSession == null || !mSession.isRunning()) {
+                closeSession();
                 try {
                     mSession = createSession();
                 } catch (SocketTimeoutException e) {
@@ -117,7 +119,8 @@ class LocalServerManager {
 
     @AnyThread
     public boolean isRunning() {
-        return mSession != null && mSession.isRunning();
+        ClientSession session = mSession;
+        return session != null && session.isRunning();
     }
 
     @WorkerThread
@@ -143,16 +146,17 @@ class LocalServerManager {
      */
     @AnyThread
     void closeSession() {
-        IoUtils.closeQuietly(mSession);
-        mSession = null;
+        synchronized (mLock) {
+            IoUtils.closeQuietly(mSession);
+            mSession = null;
+        }
     }
 
     /**
      * Close the client session.
      */
     void stop() {
-        IoUtils.closeQuietly(mSession);
-        mSession = null;
+        closeSession();
     }
 
     @WorkerThread
@@ -163,23 +167,20 @@ class LocalServerManager {
 
     @WorkerThread
     @NonNull
-    private DataTransmission getSessionDataTransmission() throws IOException {
+    private byte[] execPre(@NonNull byte[] params) throws IOException {
+        ClientSession session;
         try {
-            return getSession().getDataTransmission();
+            session = getSession();
         } catch (AdbPairingRequiredException e) {
             throw new IOException(e);
         }
-    }
-
-    @WorkerThread
-    @NonNull
-    private byte[] execPre(@NonNull byte[] params) throws IOException {
         try {
-            return getSessionDataTransmission().sendAndReceiveMessage(params);
+            return session.getDataTransmission().sendAndReceiveMessage(params);
         } catch (IOException e) {
-            if (e.getMessage() != null && e.getMessage().contains("pipe")) {
-                closeSession();
-                return getSessionDataTransmission().sendAndReceiveMessage(params);
+            // The server may already have executed the request. Reconnect for the next
+            // operation, but never replay a potentially destructive command automatically.
+            synchronized (mLock) {
+                if (mSession == session) closeSession();
             }
             throw e;
         }
@@ -221,7 +222,7 @@ class LocalServerManager {
              OutputStream os = adbStream.openOutputStream()) {
             // ADB may require a fallback method
             String command = ServerConfig.getServerRunnerCommand();
-            Log.d(TAG, "useAdbStartServer: %s", command);
+            Log.d(TAG, "Starting server through ADB...");
             executeAdbCommand(is, os, command, "Success!", 1, TimeUnit.MINUTES);
         }
         Log.d(TAG, "useAdbStartServer: Server has started.");
@@ -258,13 +259,13 @@ class LocalServerManager {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
                 String response;
                 while ((response = reader.readLine()) != null) {
-                    Log.d(TAG, "RESPONSE: %s", response);
+                    // Interactive shells echo input, including the authentication token.
                     if (response.startsWith(successPrefix)) {
                         commandSucceeded.set(true);
                         break;
                     }
                     if (response.startsWith("Error!")) {
-                        readFailure.set(new IOException(response));
+                        readFailure.set(new IOException("ADB server command reported an error"));
                         break;
                     }
                 }
@@ -280,7 +281,7 @@ class LocalServerManager {
             outputStream.write((command + "\n").getBytes(StandardCharsets.UTF_8));
             outputStream.flush();
             if (!commandWatcher.await(timeout, timeoutUnit)) {
-                throw new SocketTimeoutException("Timed out waiting for ADB command: " + command);
+                throw new SocketTimeoutException("Timed out waiting for ADB command completion");
             }
             if (!commandSucceeded.get()) {
                 Throwable failure = readFailure.get();
@@ -298,10 +299,8 @@ class LocalServerManager {
         }
         String command = ServerConfig.getServerRunnerCommand();
         // + "\n" + "supolicy --live 'allow qti_init_shell zygote_exec file execute'";
-        Log.d(TAG, "useRootStartServer: %s", command);
-        Runner.Result result = Runner.runCommand(command);
-
-        Log.d(TAG, "useRootStartServer: %s", result.getOutput());
+        Log.d(TAG, "Starting server through root...");
+        Runner.Result result = Runner.runRootCommandSilently(command);
         if (!result.isSuccessful()) {
             throw new Exception("Could not start server.");
         }
@@ -368,13 +367,17 @@ class LocalServerManager {
         }
         String host = ServerConfig.getLocalServerHost(mContext);
         int port = ServerConfig.getLocalServerPort();
-        Socket socket = new Socket(host, port);
-        socket.setSoTimeout(10_000);
-        OutputStream os = socket.getOutputStream();
-        InputStream is = socket.getInputStream();
-        DataTransmission transfer = new DataTransmission(os, is, false);
-        transfer.shakeHands(ServerConfig.getLocalToken(), DataTransmission.Role.Client);
-        return new ClientSession(socket, transfer);
+        Socket socket = new Socket();
+        try {
+            socket.connect(new InetSocketAddress(host, port), 10_000);
+            socket.setSoTimeout(10_000);
+            DataTransmission transfer = new DataTransmission(socket.getOutputStream(), socket.getInputStream(), false);
+            transfer.shakeHands(ServerConfig.getLocalToken(), DataTransmission.Role.Client);
+            return new ClientSession(socket, transfer);
+        } catch (IOException | RuntimeException e) {
+            IoUtils.closeQuietly(socket);
+            throw e;
+        }
     }
 
     /**

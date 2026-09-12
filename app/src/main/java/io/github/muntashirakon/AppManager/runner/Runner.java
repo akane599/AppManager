@@ -8,6 +8,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 
+import com.topjohnwu.superuser.Shell;
+
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -19,6 +21,7 @@ import io.github.muntashirakon.AppManager.settings.Ops;
 
 public abstract class Runner {
     public static final String TAG = Runner.class.getSimpleName();
+    private static boolean sLogCommandErrors = true;
 
     public static class Result {
         private final List<String> mStdout;
@@ -30,7 +33,7 @@ public abstract class Runner {
             mStderr = stderr;
             mExitCode = exitCode;
             // Print stderr
-            if (stderr.size() > 0) {
+            if (sLogCommandErrors && !stderr.isEmpty()) {
                 Log.e(TAG, TextUtils.join("\n", stderr));
             }
         }
@@ -118,6 +121,21 @@ public abstract class Runner {
     @NonNull
     synchronized public static Result runCommand(@NonNull String command) {
         return runCommand(getInstance(), command, null);
+    }
+
+    /** Run root bootstrap commands containing credentials without logging commands or output. */
+    @NonNull
+    public static synchronized Result runRootCommandSilently(@NonNull String command) {
+        boolean verboseLogging = Shell.enableVerboseLogging;
+        boolean logCommandErrors = sLogCommandErrors;
+        Shell.enableVerboseLogging = false;
+        sLogCommandErrors = false;
+        try {
+            return runCommand(getRootInstance(), command, null);
+        } finally {
+            Shell.enableVerboseLogging = verboseLogging;
+            sLogCommandErrors = logCommandErrors;
+        }
     }
 
     @NonNull

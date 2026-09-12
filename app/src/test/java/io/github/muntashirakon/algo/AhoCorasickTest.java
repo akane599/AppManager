@@ -15,6 +15,15 @@ public class AhoCorasickTest {
     }
 
     @Test
+    public void nullInputIsRejectedBeforeCrossingJni() {
+        assertThrows(NullPointerException.class, () -> new AhoCorasick(null));
+        assertThrows(NullPointerException.class, () -> new AhoCorasick(new String[]{"a", null}));
+        try (AhoCorasick matcher = new AhoCorasick(new String[]{"a"})) {
+            assertThrows(NullPointerException.class, () -> matcher.search(null));
+        }
+    }
+
+    @Test
     public void preservesOverlappingAndRepeatedMatches() {
         try (AhoCorasick matcher = new AhoCorasick(new String[]{"a", "aa"})) {
             assertArrayEquals(new int[]{0, 1, 0, 1, 0}, matcher.search("aaa"));
