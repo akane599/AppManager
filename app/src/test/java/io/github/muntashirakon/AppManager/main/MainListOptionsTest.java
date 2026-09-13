@@ -15,6 +15,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +33,7 @@ import io.github.muntashirakon.test.shadows.ShadowOpsDependencies.ShadowPermissi
 
 @RunWith(RobolectricTestRunner.class)
 @Config(application = Application.class, shadows = ShadowPermissions.class)
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
 public class MainListOptionsTest {
     private static int nextPackageId;
     @Test

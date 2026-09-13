@@ -12,6 +12,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -24,6 +25,7 @@ import io.github.muntashirakon.AppManager.debloat.UadListParser;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(application = Application.class)
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
 public class ApplicationItemSortTest {
     @Test
     public void uadRatingsSortInRiskOrderAndReverse() {
