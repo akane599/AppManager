@@ -18,13 +18,16 @@ import java.util.List;
 import java.util.concurrent.Future;
 
 import io.github.muntashirakon.AppManager.R;
+import io.github.muntashirakon.AppManager.debloat.DebloatObject;
 import io.github.muntashirakon.AppManager.filters.FilterItem;
 import io.github.muntashirakon.AppManager.filters.options.AppTypeOption;
 import io.github.muntashirakon.AppManager.filters.options.BackupOption;
+import io.github.muntashirakon.AppManager.filters.options.BloatwareOption;
 import io.github.muntashirakon.AppManager.filters.options.ComponentsOption;
 import io.github.muntashirakon.AppManager.filters.options.FreezeOption;
 import io.github.muntashirakon.AppManager.filters.options.InstalledOption;
 import io.github.muntashirakon.AppManager.filters.options.RunningAppsOption;
+import io.github.muntashirakon.AppManager.filters.options.TrackersOption;
 import io.github.muntashirakon.AppManager.ipc.LocalServices;
 import io.github.muntashirakon.AppManager.misc.ListOptions;
 import io.github.muntashirakon.AppManager.profiles.ProfileManager;
@@ -59,6 +62,11 @@ public class MainListOptions extends ListOptions {
             SORT_BY_OPEN_COUNT,
             SORT_BY_SCREEN_TIME,
             SORT_BY_LAST_USAGE_TIME,
+            SORT_BY_DEBLOAT_RATING,
+            SORT_BY_BACKUP_TIME,
+            SORT_BY_VERSION_CODE,
+            SORT_BY_APP_SIZE,
+            SORT_BY_APP_DATA_SIZE,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SortOrder {
@@ -82,6 +90,12 @@ public class MainListOptions extends ListOptions {
     public static final int SORT_BY_OPEN_COUNT = 15;
     public static final int SORT_BY_SCREEN_TIME = 16;
     public static final int SORT_BY_LAST_USAGE_TIME = 17;
+    // These IDs are persisted. Append new options without renumbering existing ones.
+    public static final int SORT_BY_DEBLOAT_RATING = 18;
+    public static final int SORT_BY_BACKUP_TIME = 19;
+    public static final int SORT_BY_VERSION_CODE = 20;
+    public static final int SORT_BY_APP_SIZE = 21;
+    public static final int SORT_BY_APP_DATA_SIZE = 22;
 
     @IntDef(flag = true, value = {
             FILTER_NO_FILTER,
@@ -101,6 +115,17 @@ public class MainListOptions extends ListOptions {
             FILTER_APPS_WITH_SAF,
             FILTER_APPS_WITH_SSAID,
             FILTER_STOPPED_APPS,
+            FILTER_DEBLOATABLE_APPS,
+            FILTER_UAD_RECOMMENDED,
+            FILTER_UAD_ADVANCED,
+            FILTER_UAD_EXPERT,
+            FILTER_UAD_UNSAFE,
+            FILTER_APPS_WITH_TRACKERS,
+            FILTER_APPS_WITHOUT_TRACKERS,
+            FILTER_APPS_WITHOUT_ACTIVITIES,
+            FILTER_UPDATED_SYSTEM_APPS,
+            FILTER_DEBUGGABLE_APPS,
+            FILTER_PERSISTENT_APPS,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Filter {
@@ -123,11 +148,45 @@ public class MainListOptions extends ListOptions {
     public static final int FILTER_APPS_WITH_SSAID = 1 << 13;
     public static final int FILTER_STOPPED_APPS = 1 << 14;
     public static final int FILTER_UNFROZEN_APPS = 1 << 15;
+    public static final int FILTER_DEBLOATABLE_APPS = 1 << 16;
+    public static final int FILTER_UAD_RECOMMENDED = 1 << 17;
+    public static final int FILTER_UAD_ADVANCED = 1 << 18;
+    public static final int FILTER_UAD_EXPERT = 1 << 19;
+    public static final int FILTER_UAD_UNSAFE = 1 << 20;
+    public static final int FILTER_APPS_WITH_TRACKERS = 1 << 21;
+    public static final int FILTER_APPS_WITHOUT_TRACKERS = 1 << 22;
+    public static final int FILTER_APPS_WITHOUT_ACTIVITIES = 1 << 23;
+    public static final int FILTER_UPDATED_SYSTEM_APPS = 1 << 24;
+    public static final int FILTER_DEBUGGABLE_APPS = 1 << 25;
+    public static final int FILTER_PERSISTENT_APPS = 1 << 26;
 
     // For now, just generate FilterItem
     @NonNull
     public static FilterItem getFilterItemFromFlags(int flags) {
         FilterItem filterItem = new FilterItem();
+        // One option unions the selected ratings; FilterItem ANDs it with the other filters.
+        int removalFlags = 0;
+        if ((flags & FILTER_UAD_RECOMMENDED) != 0) removalFlags |= DebloatObject.REMOVAL_SAFE;
+        if ((flags & FILTER_UAD_ADVANCED) != 0) removalFlags |= DebloatObject.REMOVAL_REPLACE;
+        if ((flags & FILTER_UAD_EXPERT) != 0) removalFlags |= DebloatObject.REMOVAL_CAUTION;
+        if ((flags & FILTER_UAD_UNSAFE) != 0) removalFlags |= DebloatObject.REMOVAL_UNSAFE;
+        if (removalFlags != 0 || (flags & FILTER_DEBLOATABLE_APPS) != 0) {
+            BloatwareOption option = new BloatwareOption();
+            if (removalFlags != 0) {
+                option.setKeyValue("removal", String.valueOf(removalFlags));
+            }
+            filterItem.addFilterOption(option);
+        }
+        if ((flags & FILTER_APPS_WITH_TRACKERS) != 0) {
+            TrackersOption option = new TrackersOption();
+            option.setKeyValue("ge", "1");
+            filterItem.addFilterOption(option);
+        }
+        if ((flags & FILTER_APPS_WITHOUT_TRACKERS) != 0) {
+            TrackersOption option = new TrackersOption();
+            option.setKeyValue("eq", "0");
+            filterItem.addFilterOption(option);
+        }
         // Flags
         int appTypeWithFlags = 0;
         if ((flags & FILTER_USER_APPS) != 0) {
@@ -135,6 +194,15 @@ public class MainListOptions extends ListOptions {
         }
         if ((flags & FILTER_SYSTEM_APPS) != 0) {
             appTypeWithFlags |= AppTypeOption.APP_TYPE_SYSTEM;
+        }
+        if ((flags & FILTER_UPDATED_SYSTEM_APPS) != 0) {
+            appTypeWithFlags |= AppTypeOption.APP_TYPE_UPDATED_SYSTEM;
+        }
+        if ((flags & FILTER_DEBUGGABLE_APPS) != 0) {
+            appTypeWithFlags |= AppTypeOption.APP_TYPE_DEBUGGABLE;
+        }
+        if ((flags & FILTER_PERSISTENT_APPS) != 0) {
+            appTypeWithFlags |= AppTypeOption.APP_TYPE_PERSISTENT;
         }
         if ((flags & FILTER_FROZEN_APPS) != 0) {
             FreezeOption option = new FreezeOption();
@@ -152,6 +220,11 @@ public class MainListOptions extends ListOptions {
         if ((flags & FILTER_APPS_WITH_ACTIVITIES) != 0) {
             ComponentsOption option = new ComponentsOption();
             option.setKeyValue("with_type", String.valueOf(ComponentsOption.COMPONENT_TYPE_ACTIVITY));
+            filterItem.addFilterOption(option);
+        }
+        if ((flags & FILTER_APPS_WITHOUT_ACTIVITIES) != 0) {
+            ComponentsOption option = new ComponentsOption();
+            option.setKeyValue("without_type", String.valueOf(ComponentsOption.COMPONENT_TYPE_ACTIVITY));
             filterItem.addFilterOption(option);
         }
         if ((flags & FILTER_APPS_WITH_BACKUPS) != 0) {
@@ -319,8 +392,13 @@ public class MainListOptions extends ListOptions {
             put(SORT_BY_TRACKERS, R.string.trackers);
             put(SORT_BY_LAST_ACTION, R.string.last_actions);
             put(SORT_BY_INSTALLATION_DATE, R.string.sort_by_installation_date);
+            put(SORT_BY_DEBLOAT_RATING, R.string.sort_by_debloat_rating);
+            put(SORT_BY_BACKUP_TIME, R.string.sort_by_backup_time);
+            put(SORT_BY_VERSION_CODE, R.string.sort_by_version_code);
             if (FeatureController.isUsageAccessEnabled()) {
                 put(SORT_BY_TOTAL_SIZE, R.string.sort_by_total_size);
+                put(SORT_BY_APP_SIZE, R.string.sort_by_app_size);
+                put(SORT_BY_APP_DATA_SIZE, R.string.sort_by_app_data_size);
                 put(SORT_BY_DATA_USAGE, R.string.sort_by_data_usage);
                 put(SORT_BY_OPEN_COUNT, R.string.sort_by_times_opened);
                 put(SORT_BY_SCREEN_TIME, R.string.sort_by_screen_time);
@@ -345,6 +423,17 @@ public class MainListOptions extends ListOptions {
             put(FILTER_APPS_WITH_BACKUPS, R.string.filter_apps_with_backups);
             put(FILTER_APPS_WITHOUT_BACKUPS, R.string.filter_apps_without_backups);
             put(FILTER_RUNNING_APPS, R.string.filter_running_apps);
+            put(FILTER_DEBLOATABLE_APPS, R.string.filter_debloatable_apps);
+            put(FILTER_UAD_RECOMMENDED, R.string.filter_uad_recommended);
+            put(FILTER_UAD_ADVANCED, R.string.filter_uad_advanced);
+            put(FILTER_UAD_EXPERT, R.string.filter_uad_expert);
+            put(FILTER_UAD_UNSAFE, R.string.filter_uad_unsafe);
+            put(FILTER_APPS_WITH_TRACKERS, R.string.filter_apps_with_trackers);
+            put(FILTER_APPS_WITHOUT_TRACKERS, R.string.filter_apps_without_trackers);
+            put(FILTER_APPS_WITHOUT_ACTIVITIES, R.string.filter_apps_without_activities);
+            put(FILTER_UPDATED_SYSTEM_APPS, R.string.filter_updated_system_apps);
+            put(FILTER_DEBUGGABLE_APPS, R.string.filter_debuggable_apps);
+            put(FILTER_PERSISTENT_APPS, R.string.filter_persistent_apps);
             put(FILTER_APPS_WITH_SPLITS, R.string.filter_apps_with_splits);
             if (Ops.isWorkingUidRoot()) {
                 put(FILTER_APPS_WITH_KEYSTORE, R.string.filter_apps_with_keystore);
@@ -368,5 +457,10 @@ public class MainListOptions extends ListOptions {
     @Override
     public boolean enableSelectUser() {
         return true;
+    }
+
+    @Override
+    public int getFilterDescription() {
+        return R.string.main_filter_description;
     }
 }

@@ -1581,4 +1581,21 @@
     <string name="uad_advanced" translatable="false">Advanced</string>
     <string name="uad_expert" translatable="false">Expert</string>
     <string name="uad_unsafe" translatable="false">Unsafe</string>
+    <string name="sort_by_debloat_rating">Debloat rating</string>
+    <string name="sort_by_backup_time">Latest backup</string>
+    <string name="sort_by_version_code">Version code</string>
+    <string name="sort_by_app_size">App size</string>
+    <string name="sort_by_app_data_size">App data size</string>
+    <string name="filter_debloatable_apps">Debloatable (UAD)</string>
+    <string name="filter_uad_recommended">UAD [Recommended]</string>
+    <string name="filter_uad_advanced">UAD [Advanced]</string>
+    <string name="filter_uad_expert">UAD [Expert]</string>
+    <string name="filter_uad_unsafe">UAD [Unsafe]</string>
+    <string name="filter_apps_with_trackers">With trackers</string>
+    <string name="filter_apps_without_trackers">Without trackers</string>
+    <string name="filter_apps_without_activities">Without activities</string>
+    <string name="filter_updated_system_apps">Updated system apps</string>
+    <string name="filter_debuggable_apps">Debuggable apps</string>
+    <string name="filter_persistent_apps">Persistent apps</string>
+    <string name="main_filter_description">Choose any UAD ratings; other filters narrow the results. Debloatable (UAD) includes Unsafe apps.</string>
 </resources>

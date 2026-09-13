@@ -36,6 +36,7 @@ public class StaticDataset {
     private static AhoCorasick sAhoCorasickTrackerCache;
     private static String[] sTrackerNames;
     private static List<DebloatObject> sDebloatObjects;
+    private static Map<String, DebloatObject> sDebloatObjectsByPackage;
 
     public static final String ARMEABI_V7A = "armeabi_v7a";
     public static final String ARM64_V8A = "arm64_v8a";
@@ -115,6 +116,20 @@ public class StaticDataset {
             sDebloatObjects = loadDebloatObjects(ContextUtils.getContext(), new Gson());
         }
         return sDebloatObjects;
+    }
+
+    /** Looks up bundled UAD metadata, including cached misses, without querying installed apps. */
+    @Nullable
+    @WorkerThread
+    public static synchronized DebloatObject getDebloatObject(@NonNull String packageName) {
+        if (sDebloatObjectsByPackage == null) {
+            Map<String, DebloatObject> objects = new HashMap<>();
+            for (DebloatObject object : getDebloatObjects()) {
+                objects.put(object.packageName, object);
+            }
+            sDebloatObjectsByPackage = objects;
+        }
+        return sDebloatObjectsByPackage.get(packageName);
     }
 
     @WorkerThread

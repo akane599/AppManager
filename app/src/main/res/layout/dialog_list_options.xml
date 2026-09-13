@@ -83,6 +83,14 @@
 
         </androidx.appcompat.widget.LinearLayoutCompat>
 
+        <androidx.appcompat.widget.AppCompatTextView
+            android:id="@+id/filter_description"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textAppearance="?android:attr/textAppearanceSmall"
+            android:visibility="gone" />
+
         <com.google.android.material.chip.ChipGroup
             android:id="@+id/filter_options"
             android:theme="@style/Widget.AppTheme.ChipGroup.Filter"

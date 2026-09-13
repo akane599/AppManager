@@ -182,6 +182,8 @@ public final class PackageUtils {
                     item.ssaid = app.ssaid;
                 }
                 item.totalSize += app.codeSize + app.dataSize;
+                item.appSize += app.codeSize;
+                item.appDataSize += app.dataSize;
                 item.dataUsage += app.wifiDataUsage + app.mobileDataUsage;
                 if (!newItem && app.userId != thisUser) {
                     // This user has the highest priority
@@ -202,7 +204,10 @@ public final class PackageUtils {
                     item.hasKeystore |= app.hasKeystore;
                 }
             }
-            item.backup = backups.remove(item.packageName);
+            // Another user of the same package may already have consumed the backup entry.
+            if (item.backup == null) {
+                item.backup = backups.remove(item.packageName);
+            }
             item.flags = app.flags;
             item.uid = app.uid;
             item.debuggable = app.isDebuggable();

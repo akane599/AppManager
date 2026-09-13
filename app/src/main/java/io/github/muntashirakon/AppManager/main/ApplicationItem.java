@@ -145,6 +145,9 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
     public Long lastActionTime = 0L;
     public Long dataUsage = 0L;
     public Long totalSize = 0L;
+    // Aggregated from the same cached per-user measurements as totalSize.
+    public long appSize = 0L;
+    public long appDataSize = 0L;
     public int openCount = 0;
     public Long screenTime = 0L;
     public Long lastUsageTime = 0L;
@@ -218,8 +221,6 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
     private PackageSizeInfo mPackageSizeInfo;
     @Nullable
     private AppUsageStatsManager.DataUsage mDataUsage;
-    @Nullable
-    private DebloatObject mBloatwareInfo;
     private Integer mFreezeFlags = null;
     private Integer mUserId = null;
     private Boolean mUsesSensors = null;
@@ -444,7 +445,7 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
 
     @Override
     public int getTargetSdk() {
-        return targetSdk;
+        return targetSdk != null ? targetSdk : 0;
     }
 
     @Override
@@ -454,7 +455,7 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
         if (mApplicationInfo != null) {
             return mApplicationInfo.compileSdkVersion;
         }
-        return targetSdk;
+        return getTargetSdk();
     }
 
     @Override
@@ -483,6 +484,12 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
     @Override
     public boolean isRunning() {
         return mIsRunning;
+    }
+
+    @Override
+    public int getTrackerCount() {
+        // Main-list counts are already scanned and persisted in the app database.
+        return trackerCount != null ? trackerCount : 0;
     }
 
     @NonNull
@@ -925,14 +932,6 @@ public class ApplicationItem extends PackageItemInfo implements IFilterableAppIn
     @Override
     @Nullable
     public DebloatObject getBloatwareInfo() {
-        if (mBloatwareInfo == null) {
-            for (DebloatObject debloatObject : StaticDataset.getDebloatObjects()) {
-                if (getPackageName().equals(debloatObject.packageName)) {
-                    mBloatwareInfo = debloatObject;
-                    break;
-                }
-            }
-        }
-        return mBloatwareInfo;
+        return StaticDataset.getDebloatObject(getPackageName());
     }
 }

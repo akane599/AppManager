@@ -89,8 +89,6 @@ public class FilterableAppInfo implements IFilterableAppInfo {
     private PackageSizeInfo mPackageSizeInfo;
     @Nullable
     private AppUsageStatsManager.DataUsage mDataUsage;
-    @Nullable
-    private DebloatObject mBloatwareInfo;
     private Integer mFreezeFlags = null;
     private Boolean mUsesSensors = null;
     private Boolean mBatteryOptEnabled = null;
@@ -615,14 +613,6 @@ public class FilterableAppInfo implements IFilterableAppInfo {
     @Override
     @Nullable
     public DebloatObject getBloatwareInfo() {
-        if (mBloatwareInfo == null) {
-            for (DebloatObject debloatObject : StaticDataset.getDebloatObjects()) {
-                if (getPackageName().equals(debloatObject.packageName)) {
-                    mBloatwareInfo = debloatObject;
-                    break;
-                }
-            }
-        }
-        return mBloatwareInfo;
+        return StaticDataset.getDebloatObject(getPackageName());
     }
 }

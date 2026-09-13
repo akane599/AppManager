@@ -70,6 +70,7 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
     private ChipGroup mSortGroup;
     private MaterialCheckBox mReverseSort;
     private TextView mFilterText;
+    private TextView mFilterDescription;
     private ChipGroup mFilterOptions;
     private TextView mOptionsText;
     private LinearLayoutCompat mOptionsView;
@@ -103,6 +104,7 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
         mSortGroup = view.findViewById(R.id.sort_options);
         mReverseSort = view.findViewById(R.id.reverse_sort);
         mFilterText = view.findViewById(R.id.filter_text);
+        mFilterDescription = view.findViewById(R.id.filter_description);
         mFilterOptions = view.findViewById(R.id.filter_options);
         mOptionsText = view.findViewById(R.id.options_text);
         mOptionsView = view.findViewById(R.id.options);
@@ -129,6 +131,11 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
         return false;
     }
 
+    @StringRes
+    public int getFilterDescription() {
+        return 0;
+    }
+
     public void reloadUi() {
         init(true);
     }
@@ -151,6 +158,8 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
 
     private void init(boolean reinit) {
         if (reinit) {
+            // Removing checked chips must not save an invalid sort ID during a backend refresh.
+            mSortGroup.setOnCheckedStateChangeListener(null);
             mSortGroup.removeAllViews();
             mFilterOptions.removeAllViews();
             mOptionsView.removeAllViews();
@@ -169,8 +178,10 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
                 ++i;
             }
             mSortGroup.check(requireListOptionActions().getSortBy());
-            mSortGroup.setOnCheckedStateChangeListener((group, checkedIds) ->
-                    requireListOptionActions().setSortBy(mSortGroup.getCheckedChipId()));
+            mSortGroup.setOnCheckedStateChangeListener((group, checkedIds) -> {
+                int sortId = mSortGroup.getCheckedChipId();
+                if (sortId != View.NO_ID) requireListOptionActions().setSortBy(sortId);
+            });
             mReverseSort.setChecked(requireListOptionActions().isReverseSort());
             mReverseSort.setOnCheckedChangeListener((buttonView, isChecked) ->
                     requireListOptionActions().setReverseSort(isChecked));
@@ -181,6 +192,9 @@ public abstract class ListOptions extends CapsuleBottomSheetDialogFragment {
         boolean filteringEnabled = filterFlagLocaleMap != null;
         mFilterText.setVisibility(filteringEnabled ? View.VISIBLE : View.GONE);
         mFilterOptions.setVisibility(filteringEnabled ? View.VISIBLE : View.GONE);
+        int description = getFilterDescription();
+        mFilterDescription.setVisibility(filteringEnabled && description != 0 ? View.VISIBLE : View.GONE);
+        if (description != 0) mFilterDescription.setText(description);
         if (filteringEnabled) {
             int i = 0;
             for (int flag : filterFlagLocaleMap.keySet()) {
