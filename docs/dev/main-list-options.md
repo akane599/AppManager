@@ -51,3 +51,10 @@ and System filters, unlisted/unknown ratings, cached tracker counts, extra app t
 activity absence, preference and filter serialization, the bundled metadata index,
 sort order/reversal/ties, comparator contracts with absent metadata, and UI chip
 selection/refresh.
+
+The nonvisual model tests use legacy graphics and SQLite backends. They exercise
+cached objects, preferences and bundled assets without rendering or a database.
+Robolectric 4.16.1 [eagerly loads its native runtime on API 35 if either backend is
+native](https://github.com/robolectric/robolectric/blob/robolectric-4.16.1/robolectric/src/main/java/org/robolectric/android/internal/AndroidTestEnvironment.java),
+which otherwise exposes its [font archive initialization race](https://github.com/robolectric/robolectric/issues/10116).
+The app's runtime backends and the existing database tests are unchanged.
