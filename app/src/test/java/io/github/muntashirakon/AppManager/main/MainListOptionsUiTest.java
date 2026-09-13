@@ -81,8 +81,7 @@ public class MainListOptionsUiTest {
         controller = Robolectric.buildActivity(HostActivity.class).setup();
         options = new TestOptions();
         options.setListOptionActions(actions);
-        controller.get().getSupportFragmentManager().beginTransaction()
-                .replace(android.R.id.content, options).commitNow();
+        options.showNow(controller.get().getSupportFragmentManager(), "list_options");
     }
 
     @After

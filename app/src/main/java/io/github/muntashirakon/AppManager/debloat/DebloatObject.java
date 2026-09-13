@@ -70,21 +70,23 @@ public class DebloatObject {
     @Nullable
     private String mSuggestionId;
 
-    private int mId;
+    // Runtime display/install state is not part of the dataset. In particular, Gson must
+    // not build reflective adapters for Drawable and its private framework internals.
+    private transient int mId;
 
     @Nullable
-    private Drawable mIcon;
+    private transient Drawable mIcon;
     @Nullable
-    private CharSequence mLabel;
+    private transient CharSequence mLabel;
     @Nullable
-    private int[] mUsers;
-    private boolean mInstalled;
+    private transient int[] mUsers;
+    private transient boolean mInstalled;
     @Nullable
-    private Boolean mSystemApp = null;
+    private transient Boolean mSystemApp = null;
     @Nullable
-    private Boolean mFrozen = null;
+    private transient Boolean mFrozen = null;
     @Nullable
-    private List<SuggestionObject> mSuggestions;
+    private transient List<SuggestionObject> mSuggestions;
 
     public void setId(int id) {
         mId = id;

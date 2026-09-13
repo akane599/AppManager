@@ -40,6 +40,9 @@ The persisted sort IDs and filter bits are appended, so existing preferences kee
 their meaning. UAD metadata uses a shared package-name index. Missing SDK/signature
 values sort consistently, and refreshing the options sheet no longer saves an
 invalid sort ID. Reverse and sort settings are saved before scheduling the work.
+Dataset parsing excludes runtime icon and installation fields, so Gson does not
+reflect into private framework drawable internals. Backup dates are retained when
+the same installed package is encountered for multiple users.
 
 Regression coverage includes every nonempty UAD rating combination with Running
 and System filters, unlisted/unknown ratings, cached tracker counts, extra app types,
