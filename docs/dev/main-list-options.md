@@ -43,6 +43,8 @@ invalid sort ID. Reverse and sort settings are saved before scheduling the work.
 Dataset parsing excludes runtime icon and installation fields, so Gson does not
 reflect into private framework drawable internals. Backup dates are retained when
 the same installed package is encountered for multiple users.
+Filter profiles restored from JSON or a parcel also restore their running-process
+and usage-data requirements, so these conditions are evaluated with populated data.
 
 Regression coverage includes every nonempty UAD rating combination with Running
 and System filters, unlisted/unknown ratings, cached tracker counts, extra app types,
