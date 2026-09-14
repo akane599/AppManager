@@ -56,7 +56,7 @@ public class SplitInputStream extends InputStream {
         byte[] bytes = new byte[1];
         int readBytes = read(bytes);
         if (readBytes != 1) return -1;
-        else return bytes[0];
+        else return bytes[0] & 0xff;
     }
 
     @Override
