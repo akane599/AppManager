@@ -3,11 +3,15 @@
 package io.github.muntashirakon.io;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
@@ -36,5 +40,30 @@ public class SplitInputStreamContractTest {
         index.setAccessible(true);
         index.setInt(stream, 0);
         return stream;
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void closeContinuesWhenPartsThrowTheSameException() throws Exception {
+        IOException shared = new IOException("shared transport failure");
+        int[] closes = new int[3];
+        SplitInputStream stream = new SplitInputStream(Collections.emptyList());
+        Field field = SplitInputStream.class.getDeclaredField("mInputStreams");
+        field.setAccessible(true);
+        List<InputStream> parts = (List<InputStream>) field.get(stream);
+        for (int i = 0; i < closes.length; ++i) {
+            final int part = i;
+            parts.add(new ByteArrayInputStream(new byte[0]) {
+                @Override
+                public void close() throws IOException {
+                    ++closes[part];
+                    if (part < 2) throw shared;
+                }
+            });
+        }
+
+        assertSame(shared, assertThrows(IOException.class, stream::close));
+        assertArrayEquals(new int[]{1, 1, 1}, closes);
+        assertEquals(0, shared.getSuppressed().length);
     }
 }

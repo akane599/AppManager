@@ -86,7 +86,7 @@ public class SplitInputStream extends InputStream {
             } catch (IOException e) {
                 if (failure == null) {
                     failure = e;
-                } else {
+                } else if (failure != e) {
                     failure.addSuppressed(e);
                 }
             }
