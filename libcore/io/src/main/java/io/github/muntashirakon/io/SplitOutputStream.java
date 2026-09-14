@@ -73,9 +73,19 @@ public class SplitOutputStream extends OutputStream {
     @WorkerThread
     @Override
     public void close() throws IOException {
+        IOException failure = null;
         for (OutputStream stream : mOutputStreams) {
-            stream.close();
+            try {
+                stream.close();
+            } catch (IOException e) {
+                if (failure == null) {
+                    failure = e;
+                } else if (failure != e) {
+                    failure.addSuppressed(e);
+                }
+            }
         }
+        if (failure != null) throw failure;
     }
 
     @WorkerThread
