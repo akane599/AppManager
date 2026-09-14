@@ -47,14 +47,16 @@ public class SplitOutputStream extends OutputStream {
     @WorkerThread
     @Override
     public void write(@NonNull byte[] b) throws IOException {
-        checkCurrentStream(b.length);
-        mOutputStreams.get(mCurrentIndex).write(b);
-        mBytesWritten += b.length;
+        write(b, 0, b.length);
     }
 
     @WorkerThread
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
+        if (off < 0 || len < 0 || off > b.length || len > b.length - off) {
+            throw new IndexOutOfBoundsException();
+        }
+        if (len == 0) return;
         checkCurrentStream(len);
         mOutputStreams.get(mCurrentIndex).write(b, off, len);
         mBytesWritten += len;
