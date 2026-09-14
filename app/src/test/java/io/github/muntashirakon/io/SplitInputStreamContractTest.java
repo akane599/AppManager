@@ -93,4 +93,21 @@ public class SplitInputStreamContractTest {
             assertEquals(-1, stream.read());
         }
     }
+
+    @Test
+    public void invalidReadRangesAreRejectedEvenAtEof() throws Exception {
+        try (SplitInputStream stream = openedStream(new byte[0])) {
+            byte[] bytes = new byte[1];
+            assertEquals(-1, stream.read());
+            assertThrows(IndexOutOfBoundsException.class,
+                    () -> stream.read(bytes, Integer.MAX_VALUE, 1));
+            assertThrows(IndexOutOfBoundsException.class,
+                    () -> stream.read(bytes, 1, Integer.MAX_VALUE));
+            assertThrows(IndexOutOfBoundsException.class, () -> stream.read(bytes, -1, 0));
+            assertThrows(IndexOutOfBoundsException.class, () -> stream.read(bytes, 2, 0));
+            assertThrows(IndexOutOfBoundsException.class, () -> stream.read(bytes, 0, -1));
+            assertThrows(NullPointerException.class, () -> stream.read(null, 0, 0));
+            assertEquals(0, stream.read(bytes, 1, 0));
+        }
+    }
 }

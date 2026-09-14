@@ -66,7 +66,7 @@ public class SplitInputStream extends InputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        if (off < 0 || len < 0 || off + len > b.length)
+        if (off < 0 || len < 0 || off > b.length || len > b.length - off)
             throw new IndexOutOfBoundsException();
         return read0(b, off, len);
     }
