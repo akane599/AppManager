@@ -43,6 +43,31 @@ public class DebloaterViewModel extends AndroidViewModel {
     private final MutableLiveData<List<DebloatObject>> mDebloatObjectListLiveData = new MutableLiveData<>();
     private final ExecutorService mExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
 
+    private boolean mLoadingRecommendations;
+    private final MutableLiveData<List<DebloatRecommendation>> mRecommendations = new MutableLiveData<>();
+
+    LiveData<List<DebloatRecommendation>> getRecommendations() {
+        return mRecommendations;
+    }
+
+    void consumeRecommendations() {
+        mLoadingRecommendations = false;
+        mRecommendations.setValue(null);
+    }
+
+    void loadRecommendations() {
+        if (mLoadingRecommendations) return;
+        mLoadingRecommendations = true;
+        mExecutor.submit(() -> {
+            try {
+                mRecommendations.postValue(DebloatRecommendations.load(getApplication()));
+            } catch (Exception e) {
+                io.github.muntashirakon.AppManager.logs.Log.e("DebloatRecommendations", e);
+                mRecommendations.postValue(Collections.emptyList());
+            }
+        });
+    }
+
     public DebloaterViewModel(@NonNull Application application) {
         super(application);
         mFilterFlags = AppPref.getInt(AppPref.PrefKey.PREF_DEBLOATER_FILTER_FLAGS_INT);
