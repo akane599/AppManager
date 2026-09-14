@@ -78,4 +78,19 @@ public class SplitInputStreamContractTest {
         }
     }
 
+    @Test
+    public void markedStreamSupportsRepeatedEofAndReset() throws Exception {
+        try (SplitInputStream stream = openedStream(new byte[]{1, 2, 3})) {
+            stream.mark(8192);
+            byte[] bytes = new byte[3];
+            assertEquals(3, stream.read(bytes));
+            assertEquals(-1, stream.read());
+            assertEquals(-1, stream.read());
+            stream.reset();
+            assertEquals(3, stream.available());
+            assertEquals(3, stream.read(bytes));
+            assertArrayEquals(new byte[]{1, 2, 3}, bytes);
+            assertEquals(-1, stream.read());
+        }
+    }
 }

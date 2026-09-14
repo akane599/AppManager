@@ -122,7 +122,7 @@ public class SplitInputStream extends InputStream {
     @WorkerThread
     @Override
     public synchronized int available() throws IOException {
-        if (mCount < 0) return 0;
+        if (mCount < 0) return mPos < 0 ? mMarkBufCount - ~mPos : 0;
         if (mPos >= mCount) {
             // Try to read the next chunk into memory
             read0(null, 0, 1);
@@ -167,6 +167,7 @@ public class SplitInputStream extends InputStream {
             }
             // Read from buf
             if (mPos >= mCount) {
+                if (mCount < 0) return n == 0 ? -1 : n;
                 // We ran out of buffer, need to either refill or abort
                 if (mMarkPos >= 0) {
                     // We need to preserve some buffer for mark
