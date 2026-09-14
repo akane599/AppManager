@@ -169,25 +169,12 @@ public class DebloaterViewModel extends AndroidViewModel {
                     if ((mFilterFlags & DebloaterListOptions.FILTER_REMOVAL_UNSAFE) == 0 && removalType == DebloatObject.REMOVAL_UNSAFE) {
                         continue;
                     }
-                    // Filter others
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_INSTALLED_APPS) != 0 && !debloatObject.isInstalled()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_UNINSTALLED_APPS) != 0 && debloatObject.isInstalled()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_USER_APPS) != 0 && !debloatObject.isUserApp()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_SYSTEM_APPS) != 0 && !debloatObject.isSystemApp()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_FROZEN_APPS) != 0 && !debloatObject.isFrozen()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_UNFROZEN_APPS) != 0 && debloatObject.isFrozen()) {
-                        continue;
-                    }
+                    if (!DebloaterFilter.matchesPair(mFilterFlags, DebloaterListOptions.FILTER_INSTALLED_APPS,
+                            DebloaterListOptions.FILTER_UNINSTALLED_APPS, debloatObject.isInstalled(), !debloatObject.isInstalled())
+                            || !DebloaterFilter.matchesPair(mFilterFlags, DebloaterListOptions.FILTER_SYSTEM_APPS,
+                            DebloaterListOptions.FILTER_USER_APPS, debloatObject.isSystemApp(), debloatObject.isUserApp())
+                            || !DebloaterFilter.matchesPair(mFilterFlags, DebloaterListOptions.FILTER_FROZEN_APPS,
+                            DebloaterListOptions.FILTER_UNFROZEN_APPS, debloatObject.isFrozen(), !debloatObject.isFrozen())) continue;
                     debloatObjects.add(debloatObject);
                 }
             } else {
