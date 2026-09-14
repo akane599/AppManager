@@ -74,7 +74,7 @@ public class SplitInputStream extends InputStream {
     @Override
     public long skip(long n) throws IOException {
         if (n <= 0) return 0;
-        return Math.max(read0(null, 0, (int) n), 0);
+        return Math.max(read0(null, 0, (int) Math.min(n, Integer.MAX_VALUE)), 0);
     }
 
     @Override

@@ -66,4 +66,16 @@ public class SplitInputStreamContractTest {
         assertArrayEquals(new int[]{1, 1, 1}, closes);
         assertEquals(0, shared.getSuppressed().length);
     }
+
+    @Test
+    public void largeSkipRequestsConsumeSmallStreamsWithoutOverflow() throws Exception {
+        long[] requests = {1L << 31, 1L << 32, Long.MAX_VALUE};
+        for (long request : requests) {
+            try (SplitInputStream stream = openedStream(new byte[]{1, 2, 3})) {
+                assertEquals(3, stream.skip(request));
+                assertEquals(-1, stream.read());
+            }
+        }
+    }
+
 }
