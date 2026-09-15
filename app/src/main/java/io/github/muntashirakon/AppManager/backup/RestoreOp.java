@@ -589,7 +589,8 @@ class RestoreOp implements Closeable {
             throw new BackupException("Failed to restore data files for index " + index + ".", th);
         }
         // Restore UID and GID
-        if (!Runner.runCommand(String.format(Locale.ROOT, "chown -R %d:%d \"%s\"", uidGidPair.uid, uidGidPair.gid, dataSourceFile.getFilePath())).isSuccessful()) {
+        if (!Runner.runCommand(new String[]{"chown", "-R", uidGidPair.uid + ":" + uidGidPair.gid,
+                dataSourceFile.getFilePath()}).isSuccessful()) {
             if (!Utils.isRoboUnitTest()) {
                 throw new BackupException("Failed to restore ownership info for index " + index + ".");
             } // else Don't care about permissions

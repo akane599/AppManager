@@ -44,17 +44,17 @@ public class DebloatObject {
     @SerializedName("label")
     @Nullable
     private String mInternalLabel;
-    @SerializedName("tags")
+    @SerializedName(value = "tags", alternate = {"labels"})
     @Nullable
     private String[] mTags;
     @SerializedName("dependencies")
     @Nullable
     private String[] mDependencies;
-    @SerializedName("required_by")
+    @SerializedName(value = "required_by", alternate = {"neededBy"})
     @Nullable
     private String[] mRequiredBy;
     // Possible values: aosp, carrier, google, misc, oem, pending
-    @SerializedName("type")
+    @SerializedName(value = "type", alternate = {"list"})
     public String type;
     @SerializedName("description")
     private String mDescription;
@@ -70,21 +70,23 @@ public class DebloatObject {
     @Nullable
     private String mSuggestionId;
 
-    private int mId;
+    // Runtime display/install state is not part of the dataset. In particular, Gson must
+    // not build reflective adapters for Drawable and its private framework internals.
+    private transient int mId;
 
     @Nullable
-    private Drawable mIcon;
+    private transient Drawable mIcon;
     @Nullable
-    private CharSequence mLabel;
+    private transient CharSequence mLabel;
     @Nullable
-    private int[] mUsers;
-    private boolean mInstalled;
+    private transient int[] mUsers;
+    private transient boolean mInstalled;
     @Nullable
-    private Boolean mSystemApp = null;
+    private transient Boolean mSystemApp = null;
     @Nullable
-    private Boolean mFrozen = null;
+    private transient Boolean mFrozen = null;
     @Nullable
-    private List<SuggestionObject> mSuggestions;
+    private transient List<SuggestionObject> mSuggestions;
 
     public void setId(int id) {
         mId = id;
@@ -106,17 +108,44 @@ public class DebloatObject {
 
     @Removal
     public int getRemoval() {
-        switch (mRemoval) {
-            default:
+        // Keep persisted filter bits compatible, but use UAD's original risk levels.
+        if (mRemoval == null) return REMOVAL_UNSAFE;
+        switch (mRemoval.toLowerCase(java.util.Locale.ROOT)) {
+            case "recommended":
             case "safe":
                 return REMOVAL_SAFE;
+            case "advanced":
             case "replace":
                 return REMOVAL_REPLACE;
+            case "expert":
             case "caution":
                 return REMOVAL_CAUTION;
-            case "unsafe":
+            default:
+                // Unknown classifications must never be presented as safe.
                 return REMOVAL_UNSAFE;
         }
+    }
+
+    @androidx.annotation.StringRes
+    public int getRemovalLabel() {
+        switch (getRemoval()) {
+            case REMOVAL_SAFE: return io.github.muntashirakon.AppManager.R.string.uad_recommended;
+            case REMOVAL_REPLACE: return io.github.muntashirakon.AppManager.R.string.uad_advanced;
+            case REMOVAL_CAUTION: return io.github.muntashirakon.AppManager.R.string.uad_expert;
+            default: return io.github.muntashirakon.AppManager.R.string.uad_unsafe;
+        }
+    }
+
+    @NonNull
+    public String[] getTags() {
+        return ArrayUtils.defeatNullable(mTags);
+    }
+
+    @NonNull
+    public String getListLabel() {
+        if ("aosp".equals(type) || "oem".equals(type)) return type.toUpperCase(java.util.Locale.ROOT);
+        if (type == null || type.isEmpty()) return "Misc";
+        return Character.toUpperCase(type.charAt(0)) + type.substring(1);
     }
 
     @Nullable
@@ -125,7 +154,7 @@ public class DebloatObject {
     }
 
     public String getDescription() {
-        return mDescription;
+        return mDescription != null ? mDescription : "";
     }
 
     @NonNull

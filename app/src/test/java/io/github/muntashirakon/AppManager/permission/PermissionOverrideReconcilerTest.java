@@ -103,6 +103,59 @@ public class PermissionOverrideReconcilerTest {
         }
     }
 
+    @Test
+    public void changeDuringApplyIsPreservedAndReconciledAgain() {
+        FakeDao dao = new FakeDao();
+        dao.insert(override(false));
+        FakePlatform platform = new FakePlatform();
+        java.util.ArrayDeque<Runnable> tasks = new java.util.ArrayDeque<>();
+        PermissionOverrideReconciler reconciler = new PermissionOverrideReconciler(dao, platform, tasks::add);
+        platform.onApply = () -> {
+            platform.onApply = null;
+            PermissionOverride changed = override(true);
+            changed.syncStatus = PermissionOverrideReconciler.PENDING;
+            dao.insert(changed);
+            reconciler.reconcile(PACKAGE_NAME, 0);
+        };
+        reconciler.reconcile(PACKAGE_NAME, 0);
+        tasks.remove().run();
+        assertTrue(dao.getValue().desiredGranted);
+        assertEquals(PermissionOverrideReconciler.PENDING, dao.getValue().syncStatus);
+        assertEquals(1, tasks.size());
+        tasks.remove().run();
+        assertTrue(platform.lastOverride.desiredGranted);
+        assertEquals(PermissionOverrideReconciler.SYNCED, dao.getValue().syncStatus);
+    }
+
+    @Test
+    public void removalDuringApplyDoesNotResurrectOverride() {
+        FakeDao dao = new FakeDao();
+        dao.insert(override(false));
+        FakePlatform platform = new FakePlatform();
+        platform.onApply = () -> dao.deleteForPackage(PACKAGE_NAME, 0);
+        new PermissionOverrideReconciler(dao, platform).reconcileNow(PACKAGE_NAME, 0);
+        assertTrue(dao.values().isEmpty());
+    }
+
+    @Test
+    public void databaseFailureDoesNotCrashWorkerOrStrandOtherPackages() {
+        FakeDao dao = new FakeDao();
+        dao.insert(override(false));
+        dao.insert(new PermissionOverride("second.package", 0, "android.permission.INTERNET", false, "7"));
+        dao.failingPackage = PACKAGE_NAME;
+        FakePlatform platform = new FakePlatform();
+        java.util.ArrayDeque<Runnable> tasks = new java.util.ArrayDeque<>();
+        PermissionOverrideReconciler reconciler = new PermissionOverrideReconciler(dao, platform, tasks::add);
+        reconciler.reconcileAll();
+        while (!tasks.isEmpty()) tasks.remove().run();
+        assertEquals(1, platform.applyCount);
+        assertEquals("second.package", platform.lastOverride.packageName);
+        dao.failingPackage = null;
+        reconciler.reconcile(PACKAGE_NAME, 0);
+        while (!tasks.isEmpty()) tasks.remove().run();
+        assertEquals(2, platform.applyCount);
+    }
+
     private static PermissionOverride override(boolean granted) {
         return override(0, granted);
     }
@@ -112,6 +165,7 @@ public class PermissionOverrideReconcilerTest {
     }
 
     private static final class FakeDao implements PermissionOverrideDao {
+        String failingPackage;
         private final Map<String, PermissionOverride> values = new LinkedHashMap<>();
 
         @Override
@@ -121,6 +175,7 @@ public class PermissionOverrideReconcilerTest {
 
         @Override
         public List<PermissionOverride> getForPackage(String packageName, int userId) {
+            if (packageName.equals(failingPackage)) throw new IllegalStateException("Database unavailable");
             List<PermissionOverride> result = new ArrayList<>();
             for (PermissionOverride value : values.values()) {
                 if (value.packageName.equals(packageName) && value.userId == userId)
@@ -137,6 +192,16 @@ public class PermissionOverrideReconcilerTest {
         @Override
         public void insert(PermissionOverride override) {
             values.put(key(override.packageName, override.userId, override.permissionName), override);
+        }
+
+        @Override
+        public void updateSyncStatus(String packageName, int userId, String permissionName,
+                                     boolean desiredGranted, String controller, int status, long time) {
+            PermissionOverride current = get(packageName, userId, permissionName);
+            if (current != null && current.desiredGranted == desiredGranted && current.controller.equals(controller)) {
+                current.syncStatus = status;
+                current.syncTime = time;
+            }
         }
 
         @Override
@@ -167,6 +232,7 @@ public class PermissionOverrideReconcilerTest {
     }
 
     private static final class FakePlatform implements PermissionOverrideReconciler.Platform {
+        Runnable onApply;
         boolean enforced;
         boolean failResolve;
         boolean failApply;
@@ -191,6 +257,7 @@ public class PermissionOverrideReconcilerTest {
         @Override
         public void apply(int uid, @NonNull PermissionOverride override) throws Exception {
             applyCount++;
+            if (onApply != null) onApply.run();
             lastUid = uid;
             lastOverride = override;
             if (failApply) throw new Exception("backend unavailable");

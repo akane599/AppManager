@@ -153,53 +153,50 @@ public final class TarUtils {
                 TarArchiveEntry entry;
                 while ((entry = tis.getNextEntry()) != null) {
                     String filename = Paths.normalize(entry.getName());
-                    // Early zip slip vulnerability check to avoid creating any files at all
-                    if (filename == null || filename.startsWith("../")) {
-                        throw new IOException("Zip slip vulnerability detected!" +
-                                "\nExpected dest: " + new File(realDestPath, entry.getName()) +
-                                "\nActual path: " + (filename != null ? new File(realDestPath, filename) : realDestPath));
+                    if (filename == null || filename.startsWith("/") || filename.equals("..")
+                            || filename.startsWith("../") || entry.getName().indexOf('\0') >= 0) {
+                        throw new IOException("Archive entry escapes the destination directory");
                     }
-                    Path file;
-                    if (entry.isDirectory()) {
-                        file = dest.createDirectoriesIfRequired(filename);
-                    } else file = dest.createNewArbitraryFile(filename, null);
-                    if (!entry.isDirectory() && (!Paths.isUnderFilter(file, dest, filterPatterns)
-                            || Paths.willExclude(file, dest, exclusionPatterns))) {
-                        // Unlike create, there's no efficient way to detect if a directory contains any filters.
-                        // Therefore, directory can't be filtered during extraction
-                        file.delete();
+                    if (!entry.isDirectory() && !entry.isFile() && !entry.isSymbolicLink()) {
+                        throw new IOException("Unsupported archive entry type");
+                    }
+                    // Filter before creating or deleting anything. Excluded entries must leave
+                    // existing destination files intact. Directories retain the existing behavior.
+                    if (!entry.isDirectory() && (!matches(filename, filterPatterns, true)
+                            || matches(filename, exclusionPatterns, false))) {
                         continue;
                     }
-                    // Check if the given entry is a link.
-                    if (entry.isSymbolicLink() && file.getFilePath() != null) {
-                        if ((!Paths.isUnderFilter(file, dest, filterPatterns) || Paths.willExclude(file, dest, exclusionPatterns))) {
-                            // Do not create this link even if it is a directory
-                            continue;
+                    boolean symbolicLink = entry.isSymbolicLink() && dest.getFilePath() != null;
+                    validateExtractionPath(dest, realDestPath, filename, symbolicLink);
+                    Path file;
+                    if (symbolicLink) {
+                        // Backups intentionally preserve external links (notably /data/app).
+                        // Validate their parents, and never let later entries write through them.
+                        int separator = filename.lastIndexOf('/');
+                        if (separator >= 0) {
+                            dest.createDirectoriesIfRequired(filename.substring(0, separator));
                         }
+                        file = Paths.build(dest, filename);
+                        if (file == null) throw new IOException("Could not resolve archive entry");
                         String linkName = entry.getLinkName();
-                        // There's no need to check if the linkName exists as it may be extracted
-                        // after the link has been created
-                        // Special check for /data/app
                         if (linkName.startsWith("/data/app/")) {
                             linkName = getAbsolutePathToDataApp(linkName, realDataAppPath);
                         }
                         file.delete();
                         if (!file.createNewSymbolicLink(linkName)) {
-                            throw new IOException("Couldn't create symbolic link " + file + " pointing to " + linkName);
+                            throw new IOException("Couldn't create symbolic link " + file);
                         }
-                        continue;  // links do not need permission fixes
+                        continue; // Links do not need permission fixes.
+                    }
+                    if (entry.isDirectory()) {
+                        file = dest.createDirectoriesIfRequired(filename);
                     } else {
-                        // Zip slip vulnerability might still be present
-                        String realFilePath = file.getRealFilePath();
-                        if (realDestPath != null && realFilePath != null && !realFilePath.startsWith(realDestPath)) {
-                            throw new IOException("Zip slip vulnerability detected!" +
-                                    "\nExpected dest: " + new File(realDestPath, entry.getName()) +
-                                    "\nActual path: " + realFilePath);
-                        }
-                        if (!entry.isDirectory()) {
-                            try (OutputStream os = file.openOutputStream()) {
-                                IoUtils.copy(tis, os);
-                            }
+                        file = dest.createNewArbitraryFile(filename, null);
+                    }
+                    validateExtractionPath(dest, realDestPath, filename, false);
+                    if (!entry.isDirectory()) {
+                        try (OutputStream os = file.openOutputStream()) {
+                            IoUtils.copy(tis, os);
                         }
                     }
                     // Fix permissions
@@ -215,6 +212,29 @@ public final class TarUtils {
             } finally {
                 is.close();
             }
+        }
+    }
+
+    private static boolean matches(@NonNull String filename, @Nullable Pattern[] patterns,
+                                   boolean defaultValue) {
+        if (patterns == null) return defaultValue;
+        for (Pattern pattern : patterns) {
+            if (pattern.matcher(filename).matches()) return true;
+        }
+        return false;
+    }
+
+    private static void validateExtractionPath(@NonNull Path dest, @Nullable String realDestPath,
+                                               @NonNull String filename, boolean symbolicLink)
+            throws IOException {
+        if (realDestPath == null) return; // Document providers confine children to their tree.
+        Path candidate = Paths.build(dest, filename);
+        if (candidate == null) throw new IOException("Could not resolve archive entry");
+        if (symbolicLink) candidate = candidate.getParent();
+        String actual = candidate == null ? null : candidate.getRealFilePath();
+        String prefix = realDestPath.endsWith(File.separator) ? realDestPath : realDestPath + File.separator;
+        if (actual == null || !(actual.equals(realDestPath) || actual.startsWith(prefix))) {
+            throw new IOException("Archive entry escapes the destination directory");
         }
     }
 

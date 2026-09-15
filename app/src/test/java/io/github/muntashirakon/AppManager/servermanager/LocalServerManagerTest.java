@@ -100,7 +100,8 @@ public class LocalServerManagerTest {
                     TimeUnit.MILLISECONDS);
             fail("Expected a SocketTimeoutException");
         } catch (SocketTimeoutException expected) {
-            assertTrue(expected.getMessage().contains("start-server"));
+            assertTrue(expected.getMessage().contains("Timed out"));
+            org.junit.Assert.assertFalse(expected.getMessage().contains("start-server"));
         }
     }
 

@@ -24,8 +24,6 @@ import com.google.android.material.color.MaterialColors;
 import com.google.android.material.textfield.TextInputLayout;
 import com.google.android.material.textview.MaterialTextView;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 import io.github.muntashirakon.AppManager.R;
@@ -42,20 +40,12 @@ import io.github.muntashirakon.view.TextInputLayoutCompat;
 import io.github.muntashirakon.widget.TextInputTextView;
 
 public class ModeOfOpsPreference extends Fragment {
-    private static final List<String> MODE_NAMES = Arrays.asList(
-            Ops.MODE_AUTO,
-            Ops.MODE_ROOT,
-            Ops.MODE_ADB_OVER_TCP,
-            Ops.MODE_ADB_WIFI,
-            Ops.MODE_NO_ROOT);
-
     private MaterialTextView mInferredModeView;
     private MaterialTextView mRemoteServerStatusView;
     private MaterialTextView mRemoteServicesStatusView;
     private MaterialTextView mModeOfOpsView;
     private MainPreferencesViewModel mModel;
     private AlertDialog mModeOfOpsAlertDialog;
-    private String[] mModes;
     @Ops.Mode
     private String mCurrentMode;
     private boolean mConnecting;
@@ -105,7 +95,7 @@ public class ModeOfOpsPreference extends Fragment {
         mIconInactive = io.github.muntashirakon.ui.R.drawable.ic_caution;
         mIconProgress = R.drawable.ic_sync;
         mModeOfOpsAlertDialog = UIUtils.getProgressDialog(requireActivity(), getString(R.string.loading), true);
-        mModes = getResources().getStringArray(R.array.modes);
+        String[] modes = OperationModeLabels.getLabels(requireContext());
         mCurrentMode = Ops.getMode();
         mConnecting = mModel.isModeOperationPending();
         mInferredModeView = view.findViewById(R.id.inferred_mode);
@@ -113,11 +103,12 @@ public class ModeOfOpsPreference extends Fragment {
         mRemoteServicesStatusView = view.findViewById(R.id.remote_services_status);
         mModeOfOpsView = view.findViewById(R.id.op_name);
         MaterialButton changeModeView = view.findViewById(R.id.action_settings);
-        List<String> disabledItems;
+        List<String> disabledItems = new java.util.ArrayList<>();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Utils.isTv(requireContext())) {
-            disabledItems = Collections.singletonList(Ops.MODE_ADB_WIFI);
-        } else disabledItems = null;
-        changeModeView.setOnClickListener(v -> new SearchableSingleChoiceDialogBuilder<>(requireActivity(), MODE_NAMES, mModes)
+            disabledItems.add(Ops.MODE_ADB_WIFI);
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) disabledItems.add(Ops.MODE_SHIZUKU);
+        changeModeView.setOnClickListener(v -> new SearchableSingleChoiceDialogBuilder<>(requireActivity(), OperationModeLabels.MODES, modes)
                 .setTitle(R.string.pref_mode_of_operations)
                 .setSelection(mCurrentMode)
                 .addDisabledItems(disabledItems)
@@ -147,8 +138,25 @@ public class ModeOfOpsPreference extends Fragment {
         mModel.loadCustomCommands();
         updateViews();
         // Mode of ops
+        getParentFragmentManager().setFragmentResultListener(ShizukuPermissionDialog.RESULT, getViewLifecycleOwner(),
+                (key, result) -> {
+                    if (result.getBoolean(ShizukuPermissionDialog.GRANTED)) mModel.setModeOfOps();
+                    else mModel.onStatusReceived(Ops.STATUS_FAILURE);
+                });
         mModel.getModeOfOpsStatus().observe(getViewLifecycleOwner(), status -> {
             switch (status) {
+                case Ops.STATUS_SHIZUKU_PERMISSION_REQUIRED:
+                    mModeOfOpsAlertDialog.dismiss();
+                    ShizukuPermissionDialog.show(getParentFragmentManager());
+                    return;
+                case Ops.STATUS_SHIZUKU_UNAVAILABLE:
+                    completeModeOperation();
+                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                            .setTitle(R.string.shizuku_mode)
+                            .setMessage(R.string.shizuku_unavailable)
+                            .setPositiveButton(R.string.close, null)
+                            .show();
+                    return;
                 case Ops.STATUS_AUTO_CONNECT_WIRELESS_DEBUGGING:
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         updateViews();
@@ -219,6 +227,7 @@ public class ModeOfOpsPreference extends Fragment {
         boolean serverRequired = requireRemoteServer(mCurrentMode);
         boolean servicesActive = LocalServices.alive();
         boolean servicesRequired = requireRemoteServices(mCurrentMode);
+        String modeLabel = OperationModeLabels.getLabel(requireContext(), mCurrentMode);
         // Mode
         if (mConnecting) {
             mInferredModeView.setText(R.string.status_connecting);
@@ -226,7 +235,7 @@ public class ModeOfOpsPreference extends Fragment {
             TextViewCompat.setCompoundDrawableTintList(mModeOfOpsView, mColorActive);
             mModeOfOpsView.setTextColor(mColorActive);
             mModeOfOpsView.setCompoundDrawablesRelativeWithIntrinsicBounds(mIconProgress, 0, 0, 0);
-            mModeOfOpsView.setText(getString(R.string.status_connecting_via_mode, mModes[MODE_NAMES.indexOf(mCurrentMode)]));
+            mModeOfOpsView.setText(getString(R.string.status_connecting_via_mode, modeLabel));
         } else {
             int uid = Users.getSelfOrRemoteUid();
             boolean goodMode = !badInferredMode(mCurrentMode, uid);
@@ -237,16 +246,16 @@ public class ModeOfOpsPreference extends Fragment {
                 mModeOfOpsView.setTextColor(mColorActive);
                 mModeOfOpsView.setCompoundDrawablesRelativeWithIntrinsicBounds(mIconActive, 0, 0, 0);
                 CharSequence mode;
-                if (serverActive && uid != Process.myUid()) {
+                if (serverRequired && serverActive && uid != Process.myUid()) {
                     mode = "remote service";
-                } else mode = mModes[MODE_NAMES.indexOf(mCurrentMode)];
+                } else mode = modeLabel;
                 mModeOfOpsView.setText(getString(R.string.status_connected_via_mode, mode));
             } else {
                 mInferredModeView.setTextColor(mColorError);
                 TextViewCompat.setCompoundDrawableTintList(mModeOfOpsView, mColorError);
                 mModeOfOpsView.setTextColor(mColorError);
                 mModeOfOpsView.setCompoundDrawablesRelativeWithIntrinsicBounds(mIconInactive, 0, 0, 0);
-                mModeOfOpsView.setText(getString(R.string.status_not_connected_via_mode, mModes[MODE_NAMES.indexOf(mCurrentMode)]));
+                mModeOfOpsView.setText(getString(R.string.status_not_connected_via_mode, modeLabel));
             }
         }
         // Server
@@ -281,6 +290,8 @@ public class ModeOfOpsPreference extends Fragment {
 
     private static boolean badInferredMode(@NonNull String mode, int uid) {
         switch (mode) {
+            case Ops.MODE_SHIZUKU:
+                return !io.github.muntashirakon.AppManager.ipc.ShizukuBackend.alive();
             case Ops.MODE_ROOT:
                 return uid != Ops.ROOT_UID;
             case Ops.MODE_ADB_OVER_TCP:

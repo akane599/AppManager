@@ -18,6 +18,12 @@ public class UserInfo implements LocalizedString {
     @Nullable
     public final String name;
 
+    UserInfo(@NonNull UserHandle handle, int userId) {
+        userHandle = handle;
+        id = userId;
+        name = null;
+    }
+
     UserInfo(@NonNull android.content.pm.UserInfo userInfo) {
         userHandle = userInfo.getUserHandle();
         id = userInfo.id;

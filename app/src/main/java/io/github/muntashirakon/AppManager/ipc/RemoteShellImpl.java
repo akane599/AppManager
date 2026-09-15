@@ -15,7 +15,8 @@ class RemoteShellImpl extends IRemoteShell.Stub {
     static {
         Shell.enableVerboseLogging = BuildConfig.DEBUG;
         Shell.setDefaultBuilder(Shell.Builder.create()
-                .setFlags(Shell.FLAG_MOUNT_MASTER)
+                .setFlags(android.os.Process.myUid() == 0
+                        ? Shell.FLAG_MOUNT_MASTER : Shell.FLAG_NON_ROOT_SHELL)
                 .setTimeout(10));
     }
 

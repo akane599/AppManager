@@ -515,7 +515,7 @@ public final class Prefs {
             return AppPref.getInt(AppPref.PrefKey.PREF_MAIN_WINDOW_SORT_ORDER_INT);
         }
 
-        public static void setSortOrder(@RunningAppsActivity.SortOrder int sortOrder) {
+        public static void setSortOrder(@MainListOptions.SortOrder int sortOrder) {
             AppPref.set(AppPref.PrefKey.PREF_MAIN_WINDOW_SORT_ORDER_INT, sortOrder);
         }
 

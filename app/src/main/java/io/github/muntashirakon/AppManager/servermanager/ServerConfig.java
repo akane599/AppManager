@@ -23,7 +23,6 @@ import java.security.SecureRandom;
 import java.util.Locale;
 
 import io.github.muntashirakon.AppManager.BuildConfig;
-import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.misc.NoOps;
 import io.github.muntashirakon.AppManager.server.common.Constants;
 import io.github.muntashirakon.AppManager.settings.Prefs;
@@ -110,13 +109,13 @@ public final class ServerConfig {
     }
 
     /**
-     * Get existing or generate new 16-digit token for client session
+     * Get the existing token or generate a 256-bit token for a new client session.
      *
      * @return Existing or new token
      */
     @AnyThread
     @NonNull
-    public static String getLocalToken() {
+    public static synchronized String getLocalToken() {
         String token = sPreferences.getString(LOCAL_TOKEN, null);
         if (TextUtils.isEmpty(token)) {
             token = generateToken();
@@ -197,13 +196,14 @@ public final class ServerConfig {
     @AnyThread
     @NonNull
     private static String generateToken() {
-        Context context = ContextUtils.getContext();
-        String[] wordList = context.getResources().getStringArray(R.array.word_list);
-        SecureRandom secureRandom = new SecureRandom();
-        String[] tokenItems = new String[3 + secureRandom.nextInt(3)];
-        for (int i = 0; i < tokenItems.length; ++i) {
-            tokenItems[i] = wordList[secureRandom.nextInt(wordList.length)];
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        char[] hex = "0123456789abcdef".toCharArray();
+        char[] token = new char[random.length * 2];
+        for (int i = 0; i < random.length; ++i) {
+            token[i * 2] = hex[(random[i] & 0xff) >>> 4];
+            token[i * 2 + 1] = hex[random[i] & 0x0f];
         }
-        return TextUtils.join("-", tokenItems);
+        return new String(token);
     }
 }

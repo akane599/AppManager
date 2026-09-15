@@ -23,13 +23,14 @@ public class RemoteProcess extends Process implements Parcelable {
     private final IRemoteProcess mRemote;
     private OutputStream mOs;
     private InputStream mIs;
+    private InputStream mEs;
 
     public RemoteProcess(IRemoteProcess remote) {
         mRemote = remote;
     }
 
     @Override
-    public OutputStream getOutputStream() {
+    public synchronized OutputStream getOutputStream() {
         if (mOs == null) {
             mOs = new RemoteOutputStream(mRemote);
         }
@@ -37,7 +38,7 @@ public class RemoteProcess extends Process implements Parcelable {
     }
 
     @Override
-    public InputStream getInputStream() {
+    public synchronized InputStream getInputStream() {
         if (mIs == null) {
             try {
                 mIs = new ParcelFileDescriptor.AutoCloseInputStream(mRemote.getInputStream());
@@ -49,12 +50,15 @@ public class RemoteProcess extends Process implements Parcelable {
     }
 
     @Override
-    public InputStream getErrorStream() {
-        try {
-            return new ParcelFileDescriptor.AutoCloseInputStream(mRemote.getErrorStream());
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
+    public synchronized InputStream getErrorStream() {
+        if (mEs == null) {
+            try {
+                mEs = new ParcelFileDescriptor.AutoCloseInputStream(mRemote.getErrorStream());
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
+            }
         }
+        return mEs;
     }
 
     @Override
@@ -142,6 +146,20 @@ public class RemoteProcess extends Process implements Parcelable {
 
         @Override
         public void write(int b) throws IOException {
+            connect();
+            mOutputStream.write(b);
+        }
+
+        @Override
+        public void write(@NonNull byte[] bytes, int offset, int length) throws IOException {
+            if (offset < 0 || length < 0 || offset > bytes.length - length) {
+                throw new IndexOutOfBoundsException();
+            }
+            connect();
+            mOutputStream.write(bytes, offset, length);
+        }
+
+        private void connect() throws IOException {
             if (mIsClosed) {
                 throw new IOException("Remote is closed.");
             }
@@ -152,7 +170,6 @@ public class RemoteProcess extends Process implements Parcelable {
                     throw new IOException(e);
                 }
             }
-            mOutputStream.write(b);
         }
 
         @Override

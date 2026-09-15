@@ -12,7 +12,6 @@ import androidx.annotation.NonNull;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Objects;
 
 import io.github.muntashirakon.AppManager.server.common.ConfigParams;
@@ -44,7 +43,6 @@ public final class ServerRunner {
     public static void main(String[] args) {
         try {
             FLog.writeLog = true;
-            FLog.log("Arguments: " + Arrays.toString(args));
             if (args == null || args.length == 0) {
                 return;
             }
@@ -67,13 +65,16 @@ public final class ServerRunner {
             String[] split = paramsStr.split(",");
             final ConfigParams configParams = new ConfigParams();
             for (String s : split) {
-                String[] param = s.split(":");
+                String[] param = s.split(":", 2);
+                if (param.length != 2 || param[1].isEmpty()) {
+                    throw new IllegalArgumentException("Invalid server parameter");
+                }
                 configParams.put(param[0], param[1]);
             }
             configParams.put(PARAM_UID, "" + Process.myUid());
             configParams.put(PARAM_CLASSPATH, Objects.requireNonNull(System.getenv("CLASSPATH")));
             // Set server info
-            LifecycleAgent.sServerInfo.startArgs = paramsStr;
+            LifecycleAgent.sServerInfo.startArgs = configParams.toString();
             LifecycleAgent.sServerInfo.startTime = System.currentTimeMillis();
             LifecycleAgent.sServerInfo.startRealTime = SystemClock.elapsedRealtime();
             // Print debug

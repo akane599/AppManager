@@ -41,6 +41,8 @@ public final class ShadowOpsDependencies {
         ShadowServices.bindFailure = false;
         ShadowServices.bindCalls = 0;
         ShadowServices.stopCalls = 0;
+        ShadowServices.launchedWithDirectRoot = false;
+        ShadowPermissions.usagePermissionFailure = false;
         ShadowUsers.remoteUid = Process.myUid();
         ShadowServer.alive = false;
         ShadowServer.restartFailure = false;
@@ -100,6 +102,7 @@ public final class ShadowOpsDependencies {
     public static class ShadowPermissions {
         public static boolean internetGranted;
         public static boolean adbPermissionGranted;
+        public static boolean usagePermissionFailure;
 
         @Implementation
         public static boolean checkSelfPermission(String permissionName) {
@@ -113,6 +116,7 @@ public final class ShadowOpsDependencies {
 
         @Implementation
         public static void init() {
+            if (usagePermissionFailure) throw new SecurityException("OEM denied optional grant");
         }
     }
 
@@ -133,6 +137,7 @@ public final class ShadowOpsDependencies {
         public static boolean bindFailure;
         public static int bindCalls;
         public static int stopCalls;
+        public static boolean launchedWithDirectRoot;
 
         @Implementation
         public static boolean alive() {
@@ -149,6 +154,7 @@ public final class ShadowOpsDependencies {
         @Implementation
         public static void bindServices() throws RemoteException {
             ++bindCalls;
+            launchedWithDirectRoot = Ops.isDirectRoot();
             if (bindFailure) {
                 throw new RemoteException("Simulated bind failure");
             }
@@ -162,7 +168,7 @@ public final class ShadowOpsDependencies {
             ++stopCalls;
             alive = false;
             ShadowUsers.remoteUid = Process.myUid();
-            Ops.setWorkingUid(Process.myUid());
+            Ops.invalidateRuntimeBackend();
         }
     }
 
@@ -175,6 +181,11 @@ public final class ShadowOpsDependencies {
 
         @Implementation
         public static boolean alive(Context context) {
+            return alive;
+        }
+
+        @Implementation
+        public static boolean checkServerHealth(Context context) {
             return alive;
         }
 

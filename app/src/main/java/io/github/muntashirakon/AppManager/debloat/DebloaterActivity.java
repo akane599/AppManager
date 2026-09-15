@@ -7,20 +7,28 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
+import android.text.format.Formatter;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.ArrayAdapter;
+import android.widget.ListView;
+import android.widget.TextView;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.checkbox.MaterialCheckBox;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
+
+import java.util.List;
+import java.util.Locale;
 
 import io.github.muntashirakon.AppManager.BaseActivity;
 import io.github.muntashirakon.AppManager.R;
@@ -105,6 +113,12 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
             mProgressIndicator.hide();
             mAdapter.setDefaultList(debloatObjects);
         });
+        viewModel.getRecommendations().observe(this, recommendations -> {
+            if (recommendations == null) return;
+            viewModel.consumeRecommendations();
+            mProgressIndicator.hide();
+            showRecommendations(recommendations);
+        });
         viewModel.loadPackages();
     }
 
@@ -141,12 +155,52 @@ public class DebloaterActivity extends BaseActivity implements MultiSelectionVie
         if (id == android.R.id.home) {
             finish();
             return true;
+        } else if (id == R.id.action_debloat_recommendations) {
+            mProgressIndicator.show();
+            viewModel.loadRecommendations();
+            return true;
         } else if (id == R.id.action_list_options) {
             DebloaterListOptions dialog = new DebloaterListOptions();
             dialog.show(getSupportFragmentManager(), DebloaterListOptions.TAG);
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    private void showRecommendations(List<DebloatRecommendation> items) {
+        ListView list = new ListView(this);
+        TextView explanation = new TextView(this);
+        int padding = (int) (16 * getResources().getDisplayMetrics().density);
+        explanation.setPadding(padding, padding, padding, padding);
+        explanation.setText(R.string.debloat_recommendations_explanation);
+        list.addHeaderView(explanation, null, false);
+        String[] rows = new String[items.size()];
+        for (int i = 0; i < items.size(); ++i) {
+            DebloatRecommendation item = items.get(i);
+            String state = getString(item.background ? R.string.debloat_background_observed
+                    : item.running ? R.string.debloat_running_observed : R.string.debloat_process_unknown);
+            String ram = item.memoryBytes < 0 ? getString(R.string.debloat_measurement_unknown)
+                    : Formatter.formatFileSize(this, item.memoryBytes);
+            String cpu = item.cpuPercent < 0 ? getString(R.string.debloat_measurement_unknown)
+                    : String.format(Locale.getDefault(), "%.1f%%", item.cpuPercent);
+            rows[i] = item.label + "\n" + item.packageName + "\n" + state + "\n"
+                    + getString(R.string.debloat_resource_snapshot, ram, cpu);
+        }
+        list.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, rows));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.debloat_recommendations)
+                .setView(list)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            int index = position - list.getHeaderViewsCount();
+            if (index < 0 || index >= items.size()) return;
+            dialog.dismiss();
+            BloatwareDetailsDialog.getInstance(items.get(index).packageName)
+                    .show(getSupportFragmentManager(), BloatwareDetailsDialog.TAG);
+        });
+        if (items.isEmpty()) explanation.append("\n\n" + getString(R.string.debloat_recommendations_empty));
+        dialog.show();
     }
 
     @Override

@@ -249,6 +249,7 @@ public class FilterItem implements IJsonSerializer, Parcelable {
         mExpr = Objects.requireNonNull(in.readString());
         mCustomExpr = ParcelCompat.readBoolean(in);
         mFilterOptions = ParcelUtils.readArrayMap(in, Integer.class.getClassLoader(), FilterOption.class.getClassLoader());
+        restoreUsageCounters();
     }
 
     @Override
@@ -302,6 +303,17 @@ public class FilterItem implements IJsonSerializer, Parcelable {
         for (int i = 0; i < array.length(); ++i) {
             FilterOption option = FilterOption.fromJson(array.getJSONObject(i));
             mFilterOptions.put(option.id, option);
+        }
+        restoreUsageCounters();
+    }
+
+    private void restoreUsageCounters() {
+        // These are derived from options, not serialized. Reloaded profiles must still
+        // request running-process/usage data before evaluating their conditions.
+        mTimesUsageInfoUsed = 0;
+        mTimesRunningOptionUsed = 0;
+        for (FilterOption option : mFilterOptions.values()) {
+            incrementUsage(option, true);
         }
     }
 

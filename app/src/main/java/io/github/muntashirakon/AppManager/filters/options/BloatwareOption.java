@@ -20,8 +20,10 @@ import androidx.annotation.NonNull;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import io.github.muntashirakon.AppManager.R;
 import io.github.muntashirakon.AppManager.debloat.DebloatObject;
 import io.github.muntashirakon.AppManager.filters.IFilterableAppInfo;
+import io.github.muntashirakon.AppManager.utils.ContextUtils;
 import io.github.muntashirakon.AppManager.utils.LangUtils;
 
 public class BloatwareOption extends FilterOption {
@@ -40,10 +42,10 @@ public class BloatwareOption extends FilterOption {
     }};
 
     private final Map<Integer, CharSequence> mRemovalFlags = new LinkedHashMap<Integer, CharSequence>() {{
-        put(REMOVAL_SAFE, "Safe");
-        put(REMOVAL_REPLACE, "Replace");
-        put(REMOVAL_CAUTION, "Caution");
-        put(REMOVAL_UNSAFE, "Unsafe");
+        put(REMOVAL_SAFE, ContextUtils.getContext().getString(R.string.uad_recommended));
+        put(REMOVAL_REPLACE, ContextUtils.getContext().getString(R.string.uad_advanced));
+        put(REMOVAL_CAUTION, ContextUtils.getContext().getString(R.string.uad_expert));
+        put(REMOVAL_UNSAFE, ContextUtils.getContext().getString(R.string.uad_unsafe));
     }};
 
     public BloatwareOption() {

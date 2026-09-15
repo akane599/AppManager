@@ -39,11 +39,11 @@ public class TrackersOption extends FilterOption {
             case KEY_ALL:
                 return result.setMatched(true);
             case "eq":
-                return result.setMatched(info.getTrackerComponents().size() == intValue);
+                return result.setMatched(info.getTrackerCount() == intValue);
             case "le":
-                return result.setMatched(info.getTrackerComponents().size() <= intValue);
+                return result.setMatched(info.getTrackerCount() <= intValue);
             case "ge":
-                return result.setMatched(info.getTrackerComponents().size() >= intValue);
+                return result.setMatched(info.getTrackerCount() >= intValue);
             default:
                 throw new UnsupportedOperationException("Invalid key " + key);
         }

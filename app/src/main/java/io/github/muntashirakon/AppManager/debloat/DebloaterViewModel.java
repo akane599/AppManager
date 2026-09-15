@@ -41,11 +41,42 @@ public class DebloaterViewModel extends AndroidViewModel {
 
     private final Map<String, int[]> mSelectedPackages = new HashMap<>();
     private final MutableLiveData<List<DebloatObject>> mDebloatObjectListLiveData = new MutableLiveData<>();
-    private final ExecutorService mExecutor = MultithreadedExecutor.getNewInstance();
+    private final ExecutorService mExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    private boolean mLoadingRecommendations;
+    private final MutableLiveData<List<DebloatRecommendation>> mRecommendations = new MutableLiveData<>();
+
+    LiveData<List<DebloatRecommendation>> getRecommendations() {
+        return mRecommendations;
+    }
+
+    void consumeRecommendations() {
+        mLoadingRecommendations = false;
+        mRecommendations.setValue(null);
+    }
+
+    void loadRecommendations() {
+        if (mLoadingRecommendations) return;
+        mLoadingRecommendations = true;
+        mExecutor.submit(() -> {
+            try {
+                mRecommendations.postValue(DebloatRecommendations.load(getApplication()));
+            } catch (Exception e) {
+                io.github.muntashirakon.AppManager.logs.Log.e("DebloatRecommendations", e);
+                mRecommendations.postValue(Collections.emptyList());
+            }
+        });
+    }
 
     public DebloaterViewModel(@NonNull Application application) {
         super(application);
         mFilterFlags = AppPref.getInt(AppPref.PrefKey.PREF_DEBLOATER_FILTER_FLAGS_INT);
+    }
+
+    @Override
+    protected void onCleared() {
+        mExecutor.shutdownNow();
+        super.onCleared();
     }
 
     public boolean hasFilterFlag(@DebloaterListOptions.Filter int flag) {
@@ -163,27 +194,16 @@ public class DebloaterViewModel extends AndroidViewModel {
                     if ((mFilterFlags & DebloaterListOptions.FILTER_REMOVAL_UNSAFE) == 0 && removalType == DebloatObject.REMOVAL_UNSAFE) {
                         continue;
                     }
-                    // Filter others
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_INSTALLED_APPS) != 0 && !debloatObject.isInstalled()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_UNINSTALLED_APPS) != 0 && debloatObject.isInstalled()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_USER_APPS) != 0 && !debloatObject.isUserApp()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_SYSTEM_APPS) != 0 && !debloatObject.isSystemApp()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_FROZEN_APPS) != 0 && !debloatObject.isFrozen()) {
-                        continue;
-                    }
-                    if ((mFilterFlags & DebloaterListOptions.FILTER_UNFROZEN_APPS) != 0 && debloatObject.isFrozen()) {
-                        continue;
-                    }
+                    if (!DebloaterFilter.matchesPair(mFilterFlags, DebloaterListOptions.FILTER_INSTALLED_APPS,
+                            DebloaterListOptions.FILTER_UNINSTALLED_APPS, debloatObject.isInstalled(), !debloatObject.isInstalled())
+                            || !DebloaterFilter.matchesPair(mFilterFlags, DebloaterListOptions.FILTER_SYSTEM_APPS,
+                            DebloaterListOptions.FILTER_USER_APPS, debloatObject.isSystemApp(), debloatObject.isUserApp())
+                            || !DebloaterFilter.matchesPair(mFilterFlags, DebloaterListOptions.FILTER_FROZEN_APPS,
+                            DebloaterListOptions.FILTER_UNFROZEN_APPS, debloatObject.isFrozen(), !debloatObject.isFrozen())) continue;
                     debloatObjects.add(debloatObject);
                 }
+            } else {
+                debloatObjects.addAll(mDebloatObjects);
             }
             if (TextUtils.isEmpty(mQueryString)) {
                 mDebloatObjectListLiveData.postValue(debloatObjects);

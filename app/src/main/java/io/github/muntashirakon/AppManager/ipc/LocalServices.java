@@ -52,11 +52,15 @@ public class LocalServices {
         synchronized (sBindLock) {
             unbindServicesIfRunning();
             try {
-                bindAmService();
-                bindFileSystemManager();
+                if (Ops.MODE_SHIZUKU.equals(Ops.getMode())) {
+                    ShizukuBackend.bind();
+                } else {
+                    ShizukuBackend.stop();
+                    bindAmService();
+                    bindFileSystemManager();
+                }
                 // Verify both binders before publishing the capability.
-                if (!getAmService().asBinder().pingBinder()
-                        || !sFileSystemServiceConnectionWrapper.isBinderActive()) {
+                if (!alive()) {
                     throw new RemoteException("Required service binder is not running.");
                 }
                 // Update UID only after both services are valid.
@@ -72,37 +76,33 @@ public class LocalServices {
     }
 
     public static boolean alive() {
+        if (ShizukuBackend.isBound()) return ShizukuBackend.alive();
         return sAMServiceConnectionWrapper.isBinderActive()
                 && sFileSystemServiceConnectionWrapper.isBinderActive();
     }
 
-    private static void onServiceBinderDied() {
-        ThreadUtils.postOnBackgroundThread(LocalServices::stopServices);
+    public static void onServiceBinderDied() {
+        ThreadUtils.postOnBackgroundThread(() -> {
+            synchronized (sBindLock) {
+                // A queued death notification may belong to a previous connection.
+                if (!alive()) stopServices();
+            }
+        });
     }
 
     @WorkerThread
     @NoOps(used = true)
     private static void bindFileSystemManager() throws RemoteException {
-        synchronized (sFileSystemServiceConnectionWrapper) {
-            try {
-                sFileSystemServiceConnectionWrapper.bindService();
-            } finally {
-                sFileSystemServiceConnectionWrapper.notifyAll();
-            }
-        }
+        sFileSystemServiceConnectionWrapper.bindService();
     }
 
     @AnyThread
     @NonNull
     @NoOps
     public static FileSystemManager getFileSystemManager() throws RemoteException {
-        synchronized (sFileSystemServiceConnectionWrapper) {
-            try {
-                return FileSystemManager.getRemote(sFileSystemServiceConnectionWrapper.getService());
-            } finally {
-                sFileSystemServiceConnectionWrapper.notifyAll();
-            }
-        }
+        if (!alive()) throw new RemoteException("Backend is not ready.");
+        if (ShizukuBackend.isBound()) return FileSystemManager.getRemote(ShizukuBackend.getFileSystem());
+        return FileSystemManager.getRemote(sFileSystemServiceConnectionWrapper.getService());
     }
 
     @NonNull
@@ -113,69 +113,68 @@ public class LocalServices {
     @WorkerThread
     @NoOps(used = true)
     private static void bindAmService() throws RemoteException {
-        synchronized (sAMServiceConnectionWrapper) {
-            try {
-                sAMServiceConnectionWrapper.bindService();
-            } finally {
-                sAMServiceConnectionWrapper.notifyAll();
-            }
-        }
+        sAMServiceConnectionWrapper.bindService();
     }
 
     @AnyThread
     @NonNull
     @NoOps
     public static IAMService getAmService() throws RemoteException {
-        synchronized (sAMServiceConnectionWrapper) {
-            try {
-                return IAMService.Stub.asInterface(sAMServiceConnectionWrapper.getService());
-            } finally {
-                sAMServiceConnectionWrapper.notifyAll();
-            }
-        }
+        // Never wait for binding here: UI callers must remain free to deliver service callbacks.
+        if (!alive()) throw new RemoteException("Backend is not ready.");
+        if (ShizukuBackend.isBound()) return ShizukuBackend.getService();
+        return IAMService.Stub.asInterface(sAMServiceConnectionWrapper.getService());
     }
 
     @WorkerThread
     @NoOps
     public static void stopServices() {
-        synchronized (sAMServiceConnectionWrapper) {
+        synchronized (sBindLock) {
+            ShizukuBackend.stop();
             sAMServiceConnectionWrapper.stopDaemon();
-        }
-        synchronized (sFileSystemServiceConnectionWrapper) {
             sFileSystemServiceConnectionWrapper.stopDaemon();
+            Ops.invalidateRuntimeBackend();
+            sState.postValue(false);
         }
-        Ops.setWorkingUid(Process.myUid());
+    }
+
+    @MainThread
+    public static void unbindServices() {
+        unbindConnections();
         Ops.invalidateRuntimeBackend();
         sState.postValue(false);
     }
 
     @MainThread
-    public static void unbindServices() {
-        synchronized (sAMServiceConnectionWrapper) {
-            sAMServiceConnectionWrapper.unbindService();
-        }
-        synchronized (sFileSystemServiceConnectionWrapper) {
-            sFileSystemServiceConnectionWrapper.unbindService();
-        }
+    private static void unbindConnections() {
+        ShizukuBackend.stop();
+        sAMServiceConnectionWrapper.unbindService();
+        sFileSystemServiceConnectionWrapper.unbindService();
+        // Preserve the requested launch identity while replacing the connections.
         Ops.setWorkingUid(Process.myUid());
-        Ops.invalidateRuntimeBackend();
-        sState.postValue(false);
     }
 
     @WorkerThread
-    private static void unbindServicesIfRunning() {
+    private static void unbindServicesIfRunning() throws RemoteException {
         // Basically unregister the services so that we can open another connection
         CountDownLatch unbindWatcher = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean pending = new java.util.concurrent.atomic.AtomicBoolean(true);
         ThreadUtils.postOnMainThread(() -> {
             try {
-                unbindServices();
+                if (pending.compareAndSet(true, false)) unbindConnections();
             } finally {
                 unbindWatcher.countDown();
             }
         });
         try {
-            unbindWatcher.await(30, TimeUnit.SECONDS);
-        } catch (InterruptedException ignore) {
+            if (!unbindWatcher.await(30, TimeUnit.SECONDS)) {
+                throw new RemoteException("Timed out unbinding previous services.");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RemoteException("Interrupted unbinding previous services.");
+        } finally {
+            pending.set(false);
         }
     }
 }

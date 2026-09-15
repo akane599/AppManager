@@ -147,30 +147,25 @@ public class BloatwareDetailsDialog extends CapsuleBottomSheetDialogFragment {
         mDescriptionView.setText(getDescription(debloatObject));
         // Add tags
         int removalColor;
-        @StringRes
-        int removalRes;
         switch (debloatObject.getRemoval()) {
             case DebloatObject.REMOVAL_SAFE:
                 removalColor = ColorCodes.getRemovalSafeIndicatorColor(requireContext());
-                removalRes = R.string.debloat_removal_safe_short_description;
                 break;
             default:
             case DebloatObject.REMOVAL_CAUTION:
                 removalColor = ColorCodes.getRemovalCautionIndicatorColor(requireContext());
-                removalRes = R.string.debloat_removal_caution_short_description;
                 break;
             case DebloatObject.REMOVAL_REPLACE:
                 removalColor = ColorCodes.getRemovalReplaceIndicatorColor(requireContext());
-                removalRes = R.string.debloat_removal_replace_short_description;
                 break;
             case DebloatObject.REMOVAL_UNSAFE:
                 removalColor = ColorCodes.getRemovalUnsafeIndicatorColor(requireContext());
-                removalRes = R.string.debloat_removal_unsafe;
                 break;
         }
         mFlowLayout.removeAllViews();
-        addTag(mFlowLayout, debloatObject.type);
-        addTag(mFlowLayout, removalRes, removalColor);
+        addTag(mFlowLayout, "[" + debloatObject.getListLabel() + "]");
+        addTag(mFlowLayout, debloatObject.getRemovalLabel(), removalColor);
+        for (String tag : debloatObject.getTags()) addTag(mFlowLayout, "[" + tag + "]");
     }
 
     private void updateDialog(@Nullable List<SuggestionObject> suggestionObjects) {

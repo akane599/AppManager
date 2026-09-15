@@ -79,10 +79,10 @@ public class DebloaterListOptions extends CapsuleBottomSheetDialogFragment {
     }};
 
     private static final SparseIntArray REMOVAL_FILTER_MAP = new SparseIntArray() {{
-        put(FILTER_REMOVAL_SAFE, R.string.debloat_removal_safe);
-        put(FILTER_REMOVAL_REPLACE, R.string.debloat_removal_replace);
-        put(FILTER_REMOVAL_CAUTION, R.string.debloat_removal_caution);
-        put(FILTER_REMOVAL_UNSAFE, R.string.debloat_removal_unsafe);
+        put(FILTER_REMOVAL_SAFE, R.string.uad_recommended);
+        put(FILTER_REMOVAL_REPLACE, R.string.uad_advanced);
+        put(FILTER_REMOVAL_CAUTION, R.string.uad_expert);
+        put(FILTER_REMOVAL_UNSAFE, R.string.uad_unsafe);
     }};
 
     private static final SparseIntArray NORMAL_FILTER_MAP = new SparseIntArray() {{

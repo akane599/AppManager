@@ -5,7 +5,6 @@ package io.github.muntashirakon.AppManager.main;
 import android.app.ActivityManager;
 import android.app.Application;
 import android.content.Intent;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.RemoteException;
@@ -28,7 +27,6 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -230,13 +228,13 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
 
     @Override
     public void setReverseSort(boolean reverseSort) {
+        mReverseSort = reverseSort;
+        Prefs.MainPage.setReverseSort(mReverseSort);
         cancelIfRunning();
         mFilterResult = executor.submit(() -> {
             sortApplicationList(mSortBy, mReverseSort);
             filterItemsByFlags();
         });
-        mReverseSort = reverseSort;
-        Prefs.MainPage.setReverseSort(mReverseSort);
     }
 
     @Override
@@ -246,15 +244,14 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
 
     @Override
     public void setSortBy(int sortBy) {
-        if (mSortBy != sortBy) {
-            cancelIfRunning();
-            mFilterResult = executor.submit(() -> {
-                sortApplicationList(sortBy, mReverseSort);
-                filterItemsByFlags();
-            });
-        }
+        if (mSortBy == sortBy) return;
         mSortBy = sortBy;
         Prefs.MainPage.setSortOrder(mSortBy);
+        cancelIfRunning();
+        mFilterResult = executor.submit(() -> {
+            sortApplicationList(mSortBy, mReverseSort);
+            filterItemsByFlags();
+        });
     }
 
     @Override
@@ -359,17 +356,26 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
     public void loadApplicationItems() {
         cancelIfRunning();
         mFilterResult = executor.submit(() -> {
-            List<ApplicationItem> updatedApplicationItems = PackageUtils
-                    .getInstalledOrBackedUpApplicationsFromDb(getApplication(), true, true);
-            synchronized (mApplicationItems) {
-                mApplicationItems.clear();
-                mApplicationItems.addAll(updatedApplicationItems);
-                // select apps again
-                for (ApplicationItem item : getSelectedApplicationItems()) {
-                    select(item);
+            try {
+                List<ApplicationItem> updatedApplicationItems = PackageUtils
+                        .getInstalledOrBackedUpApplicationsFromDb(getApplication(), true, true);
+                synchronized (mApplicationItems) {
+                    mApplicationItems.clear();
+                    mApplicationItems.addAll(updatedApplicationItems);
+                    // select apps again
+                    for (ApplicationItem item : new ArrayList<>(getSelectedApplicationItems())) {
+                        select(item);
+                    }
+                    sortApplicationList(mSortBy, mReverseSort);
+                    filterItemsByFlags();
                 }
-                sortApplicationList(mSortBy, mReverseSort);
-                filterItemsByFlags();
+            } catch (RuntimeException e) {
+                if (ThreadUtils.isInterrupted()) return;
+                Log.e("MainViewModel", "Could not refresh the app list", e);
+                synchronized (mApplicationItems) {
+                    mApplicationItemsLiveData.postValue(new ArrayList<>(mApplicationItems));
+                }
+                mOperationStatus.postValue(false);
             }
         });
     }
@@ -537,74 +543,7 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
     @GuardedBy("applicationItems")
     private void sortApplicationList(@MainListOptions.SortOrder int sortBy, boolean reverse) {
         synchronized (mApplicationItems) {
-            if (sortBy != MainListOptions.SORT_BY_APP_LABEL) {
-                sortApplicationList(MainListOptions.SORT_BY_APP_LABEL, false);
-            }
-            int mode = reverse ? -1 : 1;
-            Collator collator = Collator.getInstance();
-            Collections.sort(mApplicationItems, (o1, o2) -> {
-                switch (sortBy) {
-                    case MainListOptions.SORT_BY_APP_LABEL:
-                        return mode * collator.compare(o1.label, o2.label);
-                    case MainListOptions.SORT_BY_PACKAGE_NAME:
-                        return mode * o1.packageName.compareTo(o2.packageName);
-                    case MainListOptions.SORT_BY_DOMAIN:
-                        boolean isSystem1 = (o1.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-                        boolean isSystem2 = (o2.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-                        return mode * Boolean.compare(isSystem1, isSystem2);
-                    case MainListOptions.SORT_BY_LAST_UPDATE:
-                        // Sort in decreasing order
-                        return -mode * o1.lastUpdateTime.compareTo(o2.lastUpdateTime);
-                    case MainListOptions.SORT_BY_TOTAL_SIZE:
-                        // Sort in decreasing order
-                        return -mode * o1.totalSize.compareTo(o2.totalSize);
-                    case MainListOptions.SORT_BY_DATA_USAGE:
-                        // Sort in decreasing order
-                        return -mode * o1.dataUsage.compareTo(o2.dataUsage);
-                    case MainListOptions.SORT_BY_OPEN_COUNT:
-                        // Sort in decreasing order
-                        return -mode * Integer.compare(o1.openCount, o2.openCount);
-                    case MainListOptions.SORT_BY_INSTALLATION_DATE:
-                        // Sort in decreasing order
-                        return -mode * Long.compare(o1.firstInstallTime, o2.firstInstallTime);
-                    case MainListOptions.SORT_BY_SCREEN_TIME:
-                        // Sort in decreasing order
-                        return -mode * Long.compare(o1.screenTime, o2.screenTime);
-                    case MainListOptions.SORT_BY_LAST_USAGE_TIME:
-                        // Sort in decreasing order
-                        return -mode * Long.compare(o1.lastUsageTime, o2.lastUsageTime);
-                    case MainListOptions.SORT_BY_TARGET_SDK:
-                        // null on top
-                        if (o1.targetSdk == null) return -mode;
-                        else if (o2.targetSdk == null) return +mode;
-                        return mode * o1.targetSdk.compareTo(o2.targetSdk);
-                    case MainListOptions.SORT_BY_SHARED_ID:
-                        return mode * Integer.compare(o1.uid, o2.uid);
-                    case MainListOptions.SORT_BY_SHA:
-                        // null on top
-                        if (o1.sha == null) {
-                            return -mode;
-                        } else if (o2.sha == null) {
-                            return +mode;
-                        } else {  // Both aren't null
-                            int i = o1.sha.first.compareToIgnoreCase(o2.sha.first);
-                            if (i == 0) {
-                                return mode * o1.sha.second.compareToIgnoreCase(o2.sha.second);
-                            } else return mode * i;
-                        }
-                    case MainListOptions.SORT_BY_BLOCKED_COMPONENTS:
-                        return -mode * o1.blockedCount.compareTo(o2.blockedCount);
-                    case MainListOptions.SORT_BY_FROZEN_APP:
-                        return -mode * Boolean.compare(o1.isDisabled, o2.isDisabled);
-                    case MainListOptions.SORT_BY_BACKUP:
-                        return -mode * Boolean.compare(o1.backup != null, o2.backup != null);
-                    case MainListOptions.SORT_BY_LAST_ACTION:
-                        return -mode * o1.lastActionTime.compareTo(o2.lastActionTime);
-                    case MainListOptions.SORT_BY_TRACKERS:
-                        return -mode * o1.trackerCount.compareTo(o2.trackerCount);
-                }
-                return 0;
-            });
+            Collections.sort(mApplicationItems, ApplicationItemSort.comparator(sortBy, reverse));
         }
     }
 
@@ -739,6 +678,8 @@ public class MainViewModel extends AndroidViewModel implements ListOptions.ListO
                     item.ssaid = app.ssaid;
                 }
                 item.totalSize += app.codeSize + app.dataSize;
+                item.appSize += app.codeSize;
+                item.appDataSize += app.dataSize;
                 item.dataUsage += app.wifiDataUsage + app.mobileDataUsage;
                 if (!newItem && app.userId != thisUser) {
                     // This user has the highest priority

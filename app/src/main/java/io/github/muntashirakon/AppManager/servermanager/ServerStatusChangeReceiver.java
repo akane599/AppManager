@@ -38,7 +38,12 @@ public class ServerStatusChangeReceiver extends BroadcastReceiver {
         // Verify token before doing action
         String token = intent.getStringExtra(ConfigParams.PARAM_TOKEN);
         if (!ServerConfig.getLocalToken().equals(token)) {
-            Log.d(TAG, "Mismatch token. Expected: %s, Received: %s", ServerConfig.getLocalToken(), token);
+            Log.d(TAG, "Ignoring server event with invalid token.");
+            return;
+        }
+        if (Ops.MODE_SHIZUKU.equals(Ops.getMode()) || Ops.MODE_ROOT.equals(Ops.getMode())) {
+            // Old ADB transport events must not replace a newly selected backend.
+            sServerStartGeneration.incrementAndGet();
             return;
         }
         String uidString = intent.getStringExtra(ConfigParams.PARAM_UID);
@@ -62,27 +67,31 @@ public class ServerStatusChangeReceiver extends BroadcastReceiver {
         switch (action) {
             case ServerActions.ACTION_SERVER_STARTED:
                 // Server was started for the first time
-                Ops.setWorkingUid(uid);
                 startServerIfNotAlready(context);
                 // TODO: 8/4/24 Need to broadcast this message to update UI and/or trigger development
                 break;
             case ServerActions.ACTION_SERVER_STOPPED:
                 // Server was stopped
-                sServerStartGeneration.incrementAndGet();
-                LocalServer.die();
-                LocalServices.stopServices();
+                handleTransportLoss();
                 break;
             case ServerActions.ACTION_SERVER_CONNECTED:
                 // Server was connected with App Manager
-                Ops.setWorkingUid(uid);
                 break;
             case ServerActions.ACTION_SERVER_DISCONNECTED:
                 // Exited from App Manager
-                sServerStartGeneration.incrementAndGet();
-                LocalServer.die();
-                LocalServices.stopServices();
+                handleTransportLoss();
                 break;
         }
+    }
+
+    private static void handleTransportLoss() {
+        int generation = sServerStartGeneration.incrementAndGet();
+        ThreadUtils.postOnBackgroundThread(() -> {
+            if (generation != sServerStartGeneration.get()) return;
+            LocalServer.die();
+            // AM and filesystem Binder services can outlive the ADB transport.
+            LocalServices.onServiceBinderDied();
+        });
     }
 
     @AnyThread
@@ -104,6 +113,8 @@ public class ServerStatusChangeReceiver extends BroadcastReceiver {
                     Log.w(TAG, "Waiting for server...");
                     SystemClock.sleep(100);
                 }
+                if (generation != sServerStartGeneration.get()
+                        || Ops.MODE_SHIZUKU.equals(Ops.getMode()) || Ops.MODE_ROOT.equals(Ops.getMode())) return;
                 LocalServer.getInstance();
                 LocalServices.bindServicesIfNotAlready();
             } catch (IOException | AdbPairingRequiredException e) {

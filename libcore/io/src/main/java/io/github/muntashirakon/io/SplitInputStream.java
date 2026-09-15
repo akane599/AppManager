@@ -56,7 +56,7 @@ public class SplitInputStream extends InputStream {
         byte[] bytes = new byte[1];
         int readBytes = read(bytes);
         if (readBytes != 1) return -1;
-        else return bytes[0];
+        else return bytes[0] & 0xff;
     }
 
     @Override
@@ -66,7 +66,7 @@ public class SplitInputStream extends InputStream {
 
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
-        if (off < 0 || len < 0 || off + len > b.length)
+        if (off < 0 || len < 0 || off > b.length || len > b.length - off)
             throw new IndexOutOfBoundsException();
         return read0(b, off, len);
     }
@@ -74,7 +74,7 @@ public class SplitInputStream extends InputStream {
     @Override
     public long skip(long n) throws IOException {
         if (n <= 0) return 0;
-        return Math.max(read0(null, 0, (int) n), 0);
+        return Math.max(read0(null, 0, (int) Math.min(n, Integer.MAX_VALUE)), 0);
     }
 
     @Override
@@ -86,7 +86,7 @@ public class SplitInputStream extends InputStream {
             } catch (IOException e) {
                 if (failure == null) {
                     failure = e;
-                } else {
+                } else if (failure != e) {
                     failure.addSuppressed(e);
                 }
             }
@@ -122,7 +122,7 @@ public class SplitInputStream extends InputStream {
     @WorkerThread
     @Override
     public synchronized int available() throws IOException {
-        if (mCount < 0) return 0;
+        if (mCount < 0) return mPos < 0 ? mMarkBufCount - ~mPos : 0;
         if (mPos >= mCount) {
             // Try to read the next chunk into memory
             read0(null, 0, 1);
@@ -167,6 +167,7 @@ public class SplitInputStream extends InputStream {
             }
             // Read from buf
             if (mPos >= mCount) {
+                if (mCount < 0) return n == 0 ? -1 : n;
                 // We ran out of buffer, need to either refill or abort
                 if (mMarkPos >= 0) {
                     // We need to preserve some buffer for mark

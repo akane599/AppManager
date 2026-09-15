@@ -138,33 +138,28 @@ public class DebloaterRecyclerViewAdapter extends MultiSelectionView.Adapter<Deb
         String warning = debloatObject.getWarning();
         SpannableStringBuilder sb = new SpannableStringBuilder();
         int removalColor;
-        @StringRes
-        int removalRes;
         switch (debloatObject.getRemoval()) {
             case DebloatObject.REMOVAL_SAFE:
                 removalColor = mRemovalSafeColor;
-                removalRes = R.string.debloat_removal_safe_short_description;
                 break;
             default:
             case DebloatObject.REMOVAL_CAUTION:
                 removalColor = mRemovalCautionColor;
-                removalRes = R.string.debloat_removal_caution_short_description;
                 break;
             case DebloatObject.REMOVAL_REPLACE:
                 removalColor = mRemovalReplaceColor;
-                removalRes = R.string.debloat_removal_replace_short_description;
                 break;
             case DebloatObject.REMOVAL_UNSAFE:
                 removalColor = mRemovalUnsafeColor;
-                removalRes = R.string.debloat_removal_unsafe;
                 break;
         }
-        sb.append(getColoredText(context.getString(removalRes), removalColor));
+        sb.append(getColoredText("[" + context.getString(debloatObject.getRemovalLabel()) + "]", removalColor));
+        for (String tag : debloatObject.getTags()) sb.append(" [").append(tag).append("]");
         if (!TextUtils.isEmpty(warning)) {
             sb.append(" — ").append(warning);
         }
         holder.iconView.setImageDrawable(icon);
-        holder.listTypeView.setText(debloatObject.type);
+        holder.listTypeView.setText("[" + debloatObject.getListLabel() + "]");
         holder.labelView.setText(UIUtils.getHighlightedText(debloatObject.getLabelOrPackageName().toString(), mSearchQuery, mQueryStringHighlightColor));
         holder.packageNameView.setText(UIUtils.getHighlightedText(debloatObject.packageName, mSearchQuery, mQueryStringHighlightColor));
         holder.descriptionView.setText(sb);

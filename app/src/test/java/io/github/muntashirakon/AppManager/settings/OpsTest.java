@@ -152,6 +152,7 @@ public class OpsTest {
         assertEquals(1, ShadowServices.bindCalls);
         assertEquals(Ops.ROOT_UID, Ops.getWorkingUid());
         assertTrue(Ops.isDirectRoot());
+        assertTrue(ShadowServices.launchedWithDirectRoot);
     }
 
     @Test
@@ -221,5 +222,41 @@ public class OpsTest {
         assertEquals(0, ShadowServices.bindCalls);
         assertThrows(IllegalArgumentException.class, () -> ServerConfig.setAdbPort(0));
         assertThrows(IllegalArgumentException.class, () -> ServerConfig.setAdbPort(65536));
+    }
+    @Test
+    public void shizukuModePersistsWithoutInternetPermission() {
+        ShadowPermissions.internetGranted = false;
+        Ops.setMode(Ops.MODE_SHIZUKU);
+        assertEquals(Ops.MODE_SHIZUKU, Ops.getMode());
+    }
+
+    @Test
+    public void unavailableShizukuClearsPreviousPrivilegesWithoutChangingPreference() {
+        ShadowServices.alive = true;
+        ShadowUsers.remoteUid = Ops.SHELL_UID;
+        Ops.setWorkingUid(Ops.SHELL_UID);
+        Ops.setMode(Ops.MODE_SHIZUKU);
+        assertEquals(Ops.STATUS_SHIZUKU_UNAVAILABLE, Ops.init(mContext, true));
+        assertEquals(Process.myUid(), Ops.getWorkingUid());
+        assertFalse(ShadowServices.alive);
+        assertEquals(Ops.MODE_SHIZUKU, Ops.getMode());
+    }
+    @Test
+    public void optionalPermissionSetupFailureKeepsValidatedAdbBackend() {
+        ShadowPermissions.usagePermissionFailure = true;
+        Ops.setMode(Ops.MODE_ADB_OVER_TCP);
+        assertEquals(Ops.STATUS_SUCCESS, Ops.init(mContext, true));
+        assertTrue(Ops.isAdb());
+        assertEquals(Ops.SHELL_UID, Ops.getWorkingUid());
+    }
+
+    @Test
+    public void shizukuIsUnavailableOnAndroid5WithoutCallingItsApi() {
+        // Robolectric 4.16 no longer provides an Android 5 runtime. Exercise the version guard
+        // without trying to download an unsupported SDK image.
+        ReflectionHelpers.setStaticField(android.os.Build.VERSION.class, "SDK_INT", 22);
+        Ops.setMode(Ops.MODE_SHIZUKU);
+        assertEquals(Ops.STATUS_SHIZUKU_UNAVAILABLE, Ops.init(mContext, true));
+        assertEquals(Process.myUid(), Ops.getWorkingUid());
     }
 }

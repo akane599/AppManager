@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="debloat_recommendations">Debloat recommendations</string>
+    <string name="debloat_recommendations_explanation">Apps for the current Android user rated Recommended by UAD, excluding frozen apps, warnings and listed dependents. Background processes come first, then running processes, CPU since process start and RAM. This is a snapshot; access may be limited. RAM is resident memory and may include shared pages. CPU is not a battery-drain measurement. Review an app’s details and your needs before freezing or removing it.</string>
+    <string name="debloat_background_observed">Background process observed</string>
+    <string name="debloat_running_observed">Running process observed</string>
+    <string name="debloat_process_unknown">Process activity unavailable or not observed</string>
+    <string name="debloat_measurement_unknown">Unknown</string>
+    <string name="debloat_resource_snapshot">RAM (RSS): %1$s · CPU since start: %2$s</string>
+    <string name="debloat_recommendations_empty">No eligible apps found. Package information may be unavailable. Reopen this view to refresh.</string>
+</resources>

@@ -43,8 +43,10 @@ public final class ConfigParams {
                 break;
             case PARAM_UID:
                 mUid = value;
+                break;
             case PARAM_CLASSPATH:
                 mClassPath = value;
+                break;
         }
     }
 
@@ -83,7 +85,7 @@ public final class ConfigParams {
                 "mIsDebug=" + mIsDebug +
                 ", mPath='" + mPath + '\'' +
                 ", mRunInBackground=" + mRunInBackground +
-                ", mToken='" + mToken + '\'' +
+                ", mToken=<redacted>" +
                 ", mUid='" + mUid + '\'' +
                 '}';
     }

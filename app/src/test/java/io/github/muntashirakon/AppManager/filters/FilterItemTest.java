@@ -4,6 +4,8 @@ package io.github.muntashirakon.AppManager.filters;
 
 import static org.junit.Assert.*;
 
+import android.os.Parcel;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -12,6 +14,32 @@ import io.github.muntashirakon.AppManager.filters.options.FilterOptions;
 
 @RunWith(RobolectricTestRunner.class)
 public class FilterItemTest {
+    @Test
+    public void restoredFiltersRetainRunningAndUsageRequirements() throws Exception {
+        FilterItem original = new FilterItem();
+        original.addFilterOption(FilterOptions.create("running_apps"));
+        original.addFilterOption(FilterOptions.create("data_usage"));
+        original.addFilterOption(FilterOptions.create("times_opened"));
+        FilterItem json = FilterItem.DESERIALIZER.deserialize(original.serializeToJson());
+        Parcel parcel = Parcel.obtain();
+        try {
+            original.writeToParcel(parcel, 0);
+            parcel.setDataPosition(0);
+            FilterItem restoredParcel = FilterItem.CREATOR.createFromParcel(parcel);
+            for (FilterItem restored : new FilterItem[]{json, restoredParcel}) {
+                assertEquals(original.getExpr(), restored.getExpr());
+                assertEquals(1, restored.getTimesRunningOptionUsed());
+                assertEquals(2, restored.getTimesUsageInfoUsed());
+                restored.removeFilterOptionAt(0);
+                assertEquals(0, restored.getTimesRunningOptionUsed());
+                restored.removeFilterOptionAt(0);
+                assertEquals(1, restored.getTimesUsageInfoUsed());
+            }
+        } finally {
+            parcel.recycle();
+        }
+    }
+
     @Test
     public void testAddFilterOption() {
         FilterItem filterItem = new FilterItem();

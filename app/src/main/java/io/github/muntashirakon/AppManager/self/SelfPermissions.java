@@ -64,7 +64,10 @@ public class SelfPermissions {
             try {
                 AppOpsManagerCompat appOps = new AppOpsManagerCompat();
                 appOps.setMode(AppOpsManagerHidden.OP_GET_USAGE_STATS, Process.myUid(), BuildConfig.APPLICATION_ID, AppOpsManager.MODE_ALLOWED);
-            } catch (RemoteException ignore) {
+            } catch (RemoteException | RuntimeException e) {
+                // OEM restrictions on usage access must not discard a working backend.
+                io.github.muntashirakon.AppManager.logs.Log.w("SelfPermissions",
+                        "Could not grant usage access", e);
             }
         }
     }

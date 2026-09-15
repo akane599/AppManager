@@ -1573,4 +1573,29 @@
     <string name="manual_wireless_debugging_title">Connect using Wireless Debugging</string>
     <string name="launch_activity_dialog_title">Launch activity: action required</string>
     <string name="launch_activity_dialog_message">Android 5.x cannot trigger the <b>Search assistant</b> automatically. To open the activity, activate the Search assistant manually (usually by long-pressing the Home button). Tap <b>Close</b> after the activity opens to restore the original assistant.</string>
+    <string name="shizuku_mode" translatable="false">Shizuku</string>
+    <string name="shizuku_unavailable">Start Shizuku or Sui, then select Shizuku mode again. Shizuku mode requires Android 6 or later and Shizuku API 12 or later.</string>
+    <string name="shizuku_permission_message">Allow App Manager to use Shizuku for privileged operations. The available features depend on whether Shizuku was started with ADB or root.</string>
+    <string name="shizuku_permission_denied">Permission was denied. Allow App Manager in Shizuku’s authorized applications, then try again.</string>
+    <string name="uad_recommended" translatable="false">Recommended</string>
+    <string name="uad_advanced" translatable="false">Advanced</string>
+    <string name="uad_expert" translatable="false">Expert</string>
+    <string name="uad_unsafe" translatable="false">Unsafe</string>
+    <string name="sort_by_debloat_rating">Debloat rating</string>
+    <string name="sort_by_backup_time">Latest backup</string>
+    <string name="sort_by_version_code">Version code</string>
+    <string name="sort_by_app_size">App size</string>
+    <string name="sort_by_app_data_size">App data size</string>
+    <string name="filter_debloatable_apps">Debloatable (UAD)</string>
+    <string name="filter_uad_recommended">UAD [Recommended]</string>
+    <string name="filter_uad_advanced">UAD [Advanced]</string>
+    <string name="filter_uad_expert">UAD [Expert]</string>
+    <string name="filter_uad_unsafe">UAD [Unsafe]</string>
+    <string name="filter_apps_with_trackers">With trackers</string>
+    <string name="filter_apps_without_trackers">Without trackers</string>
+    <string name="filter_apps_without_activities">Without activities</string>
+    <string name="filter_updated_system_apps">Updated system apps</string>
+    <string name="filter_debuggable_apps">Debuggable apps</string>
+    <string name="filter_persistent_apps">Persistent apps</string>
+    <string name="main_filter_description">Choose any UAD ratings; other filters narrow the results. Debloatable (UAD) includes Unsafe apps.</string>
 </resources>

@@ -35,60 +35,63 @@ public final class Users {
     private static final List<UserInfo> sUserInfoList = new ArrayList<>();
     private static boolean sUnprivilegedMode = false;
 
+    private static int sCachedUid = -1;
+
     @NonNull
-    public static List<UserInfo> getAllUsers() {
-        if (sUserInfoList.isEmpty() || sUnprivilegedMode) {
-            int uid = getSelfOrRemoteUid();
-            IUserManager userManager = IUserManager.Stub.asInterface(ProxyBinder.getService(Context.USER_SERVICE));
+    public static synchronized List<UserInfo> getAllUsers() {
+        int uid = getSelfOrRemoteUid();
+        if (!sUserInfoList.isEmpty() && !sUnprivilegedMode && sCachedUid == uid) {
+            return new ArrayList<>(sUserInfoList);
+        }
+        List<UserInfo> users = new ArrayList<>();
+        try {
+            IUserManager manager = IUserManager.Stub.asInterface(ProxyBinder.getService(Context.USER_SERVICE));
             if (SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.MANAGE_USERS)
                     || SelfPermissions.checkSelfOrRemotePermission(ManifestCompat.permission.CREATE_USERS)) {
-                if (sUnprivilegedMode) {
-                    // User info were previously fetched in unprivileged mode. We need to fetch them again.
-                    sUnprivilegedMode = false;
-                    sUserInfoList.clear();
-                }
-                List<android.content.pm.UserInfo> userInfoList = null;
+                List<android.content.pm.UserInfo> result;
                 try {
-                    userInfoList = userManager.getUsers(true);
+                    result = manager.getUsers(true);
                 } catch (RemoteException | NoSuchMethodError e) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        userInfoList = ExUtils.exceptionAsNull(() -> userManager.getUsers(true, true, true));
-                    }
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw e;
+                    result = manager.getUsers(true, true, true);
                 }
-                if (userInfoList != null) {
-                    for (android.content.pm.UserInfo userInfo : userInfoList) {
-                        try {
-                            if (uid == Ops.SHELL_UID && userManager.hasUserRestriction(UserManager.DISALLOW_DEBUGGING_FEATURES, userInfo.id)) {
-                                Log.w(TAG, "Shell cannot access user %s as debugging is disallowed.", userInfo.id);
-                                continue;
-                            }
-                        } catch (RemoteException e) {
-                            ExUtils.rethrowFromSystemServer(e);
-                        }
-                        sUserInfoList.add(new UserInfo(userInfo));
+                if (result != null) {
+                    for (android.content.pm.UserInfo info : result) {
+                        if (uid == Ops.SHELL_UID && manager.hasUserRestriction(
+                                UserManager.DISALLOW_DEBUGGING_FEATURES, info.id)) continue;
+                        users.add(new UserInfo(info));
                     }
                 }
             }
-            if (sUserInfoList.isEmpty()) {
-                sUnprivilegedMode = true;
-                // The above didn't succeed, try no-root mode
-                Log.d(TAG, "Missing required permission: MANAGE_USERS or CREATE_USERS (7+). Falling back to unprivileged mode.");
-                List<android.content.pm.UserInfo> userInfoList = userManager.getProfiles(
-                        UserHandleHidden.getUserId(uid), false);
-                for (android.content.pm.UserInfo userInfo : userInfoList) {
-                    sUserInfoList.add(new UserInfo(userInfo));
-                }
-            }
+        } catch (RemoteException | RuntimeException | NoSuchMethodError e) {
+            Log.w(TAG, "Privileged profile discovery unavailable", e);
         }
-        return sUserInfoList;
+        sUnprivilegedMode = users.isEmpty();
+        if (users.isEmpty()) {
+            // Use the app identity and its actual user, not shell's user 0.
+            try {
+                IUserManager manager = IUserManager.Stub.asInterface(
+                        ProxyBinder.getUnprivilegedService(Context.USER_SERVICE));
+                List<android.content.pm.UserInfo> profiles = manager.getProfiles(UserHandleHidden.myUserId(), false);
+                if (profiles != null) {
+                    for (android.content.pm.UserInfo info : profiles) users.add(new UserInfo(info));
+                }
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Profile query unavailable; using current user", e);
+            }
+            if (users.isEmpty()) users.add(new UserInfo(Process.myUserHandle(), UserHandleHidden.myUserId()));
+        }
+        sCachedUid = uid;
+        sUserInfoList.clear();
+        sUserInfoList.addAll(users);
+        return new ArrayList<>(users);
     }
 
     @NonNull
     @UserIdInt
     public static int[] getAllUserIds() {
-        getAllUsers();
         List<Integer> users = new ArrayList<>();
-        for (UserInfo userInfo : sUserInfoList) {
+        for (UserInfo userInfo : getAllUsers()) {
             users.add(userInfo.id);
         }
         return ArrayUtils.convertToIntArray(users);
@@ -96,10 +99,9 @@ public final class Users {
 
     @NonNull
     public static List<UserInfo> getUsers() {
-        getAllUsers();
         int[] selectedUserIds = Prefs.Misc.getSelectedUsers();
         List<UserInfo> users = new ArrayList<>();
-        for (UserInfo userInfo : sUserInfoList) {
+        for (UserInfo userInfo : getAllUsers()) {
             if (selectedUserIds == null || ArrayUtils.contains(selectedUserIds, userInfo.id)) {
                 users.add(userInfo);
             }
@@ -110,10 +112,9 @@ public final class Users {
     @NonNull
     @UserIdInt
     public static int[] getUsersIds() {
-        getAllUsers();
         int[] selectedUserIds = Prefs.Misc.getSelectedUsers();
         List<Integer> users = new ArrayList<>();
-        for (UserInfo userInfo : sUserInfoList) {
+        for (UserInfo userInfo : getAllUsers()) {
             if (selectedUserIds == null || ArrayUtils.contains(selectedUserIds, userInfo.id)) {
                 users.add(userInfo.id);
             }
@@ -123,8 +124,7 @@ public final class Users {
 
     @Nullable
     public static UserHandle getUserHandle(@UserIdInt int userId) {
-        getAllUsers();
-        for (UserInfo userInfo : sUserInfoList) {
+        for (UserInfo userInfo : getAllUsers()) {
             if (userInfo.id == userId) {
                 return userInfo.userHandle;
             }

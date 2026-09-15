@@ -52,21 +52,30 @@ int copy_file(const char *src, const char *dst) {
     }
 
     char buf[BUFSIZ];
-    ssize_t n;
-    while ((n = read(fd_src, buf, sizeof(buf))) > 0) {
-        if (write(fd_dst, buf, n) != n) {
-            // Write failed
-            close(fd_src);
-            close(fd_dst);
-            unlink(dst);
-            return -1;
+    int result = 0;
+    for (;;) {
+        ssize_t n = read(fd_src, buf, sizeof(buf));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) {
+            if (n < 0) result = -1;
+            break;
         }
+        ssize_t offset = 0;
+        while (offset < n) {
+            ssize_t written = write(fd_dst, buf + offset, n - offset);
+            if (written < 0 && errno == EINTR) continue;
+            if (written <= 0) {
+                result = -1;
+                break;
+            }
+            offset += written;
+        }
+        if (result != 0) break;
     }
-
     close(fd_src);
-    close(fd_dst);
-
-    return (n < 0) ? -1 : 0;
+    if (close(fd_dst) != 0) result = -1;
+    if (result != 0) unlink(dst);
+    return result;
 }
 
 int main(int argc, char *argv[]) {
@@ -101,16 +110,16 @@ int main(int argc, char *argv[]) {
 
     // /data/local/tmp/am.jar
     char exec_jar_path[512];
-    if (snprintf(exec_jar_path, sizeof(exec_jar_path), "%s/%s", TMP_PATH, am_jar_name) >=
-        sizeof(exec_jar_path)) {
+    int length = snprintf(exec_jar_path, sizeof(exec_jar_path), "%s/%s", TMP_PATH, am_jar_name);
+    if (length < 0 || (size_t) length >= sizeof(exec_jar_path)) {
         fprintf(stderr, "Error! Buffer overflow on exec_jar_path.\n");
         return 1;
     }
 
     // /data/local/tmp/main.jar
     char main_jar_path[512];
-    if (snprintf(main_jar_path, sizeof(main_jar_path), "%s/%s", TMP_PATH, main_jar_name) >=
-        sizeof(main_jar_path)) {
+    length = snprintf(main_jar_path, sizeof(main_jar_path), "%s/%s", TMP_PATH, main_jar_name);
+    if (length < 0 || (size_t) length >= sizeof(main_jar_path)) {
         fprintf(stderr, "Error! Buffer overflow on main_jar_path.\n");
         return 1;
     }
@@ -184,15 +193,15 @@ int main(int argc, char *argv[]) {
 
     // Build argument for am.jar
     char args_buf[2048];
-    if (snprintf(args_buf, sizeof(args_buf), "path:%s,token:%s,app:%s,bgrun:%s,debug:%s",
-                 port, token, app_id, bgrun, debug) >= sizeof(args_buf)) {
+    length = snprintf(args_buf, sizeof(args_buf), "path:%s,token:%s,app:%s,bgrun:%s,debug:%s",
+                      port, token, app_id, bgrun, debug);
+    if (length < 0 || (size_t) length >= sizeof(args_buf)) {
         fprintf(stderr, "Error! Buffer overflow on args_buf.\n");
         unlink(exec_jar_path);
         return 1;
     }
 
     printf("Resolved Jar path: %s\n", resolved_am_jar_path);
-    printf("Args: %s\n", args_buf);
 
     // Execute app_process
     if (setenv("CLASSPATH", exec_jar_path, 1) != 0) {

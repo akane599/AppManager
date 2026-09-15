@@ -37,9 +37,14 @@ public final class PermissionOverrideReconciler {
 
     PermissionOverrideReconciler(@NonNull PermissionOverrideDao dao,
                                  @NonNull Platform platform) {
+        this(dao, platform, Executors.newSingleThreadExecutor());
+    }
+
+    PermissionOverrideReconciler(@NonNull PermissionOverrideDao dao, @NonNull Platform platform,
+                                 @NonNull Executor executor) {
         mDao = dao;
         mPlatform = platform;
-        mExecutor = Executors.newSingleThreadExecutor();
+        mExecutor = executor;
     }
 
     public void reconcile(@NonNull String packageName, int userId) {
@@ -47,45 +52,36 @@ public final class PermissionOverrideReconciler {
         synchronized (mQueuedKeys) {
             if (!mQueuedKeys.add(key)) return;
         }
-        mExecutor.execute(() -> {
-            try {
-                reconcileNow(packageName, userId);
-            } finally {
+        try {
+            execute(() -> {
+                // Only coalesce waiting work. A change during this run needs a subsequent run.
                 synchronized (mQueuedKeys) {
                     mQueuedKeys.remove(key);
                 }
+                reconcileNow(packageName, userId);
+            });
+        } catch (RuntimeException e) {
+            synchronized (mQueuedKeys) {
+                mQueuedKeys.remove(key);
             }
-        });
+            throw e;
+        }
     }
 
     public void reconcileAll() {
-        mExecutor.execute(() -> {
+        execute(() -> {
             Set<UserPackagePair> targets = new LinkedHashSet<>();
             for (PermissionOverride override : mDao.getAll()) {
                 targets.add(new UserPackagePair(override.packageName, override.userId));
             }
-            Set<UserPackagePair> ownedTargets = new LinkedHashSet<>();
-            synchronized (mQueuedKeys) {
-                for (UserPackagePair target : targets) {
-                    if (mQueuedKeys.add(target)) {
-                        ownedTargets.add(target);
-                    }
-                }
-            }
-            for (UserPackagePair target : ownedTargets) {
-                try {
-                    reconcileNow(target.getPackageName(), target.getUserId());
-                } finally {
-                    synchronized (mQueuedKeys) {
-                        mQueuedKeys.remove(target);
-                    }
-                }
+            for (UserPackagePair target : targets) {
+                reconcile(target.getPackageName(), target.getUserId());
             }
         });
     }
 
     public void remove(@NonNull String packageName, int userId) {
-        mExecutor.execute(() -> removeNow(packageName, userId));
+        execute(() -> removeNow(packageName, userId));
     }
 
     void removeNow(@NonNull String packageName, int userId) {
@@ -105,13 +101,13 @@ public final class PermissionOverrideReconciler {
             } catch (Exception e) {
                 for (PermissionOverride override : overrides) {
                     override.syncStatus = FAILED;
-                    mDao.insert(override);
+                    updateSyncStatus(override);
                 }
                 return;
             }
             for (PermissionOverride override : overrides) {
                 override.syncStatus = PENDING;
-                mDao.insert(override);
+                updateSyncStatus(override);
                 try {
                     if (!mPlatform.isEnforced(uid, override)) mPlatform.apply(uid, override);
                     override.syncStatus = SYNCED;
@@ -119,8 +115,27 @@ public final class PermissionOverrideReconciler {
                 } catch (Exception e) {
                     override.syncStatus = FAILED;
                 }
-                mDao.insert(override);
+                updateSyncStatus(override);
             }
         }
+    }
+
+    private void execute(@NonNull Runnable task) {
+        mExecutor.execute(() -> {
+            try {
+                task.run();
+            } catch (RuntimeException e) {
+                // Database failures must not crash Android's entire process or prevent later
+                // reconciliation. Persisted pending overrides can be retried on the next event.
+                e.printStackTrace();
+            }
+        });
+    }
+
+    private void updateSyncStatus(@NonNull PermissionOverride override) {
+        // Updating a stale snapshot must never replace a newer user choice or resurrect a
+        // removed override. The DAO checks the desired state atomically with the status write.
+        mDao.updateSyncStatus(override.packageName, override.userId, override.permissionName,
+                override.desiredGranted, override.controller, override.syncStatus, override.syncTime);
     }
 }

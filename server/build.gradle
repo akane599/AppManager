@@ -88,23 +88,31 @@ android.libraryVariants.configureEach { variant ->
 
             println("Creating am.jar...")
             def amArgs = ['--release', '--min-api', min_sdk, '--output', amJar.absolutePath, '--lib', androidJar]
-            amArgs.addAll(Files.list(Paths.get(libserverClassDir)).filter {
-                !it.fileName.toString().startsWith("IRootServiceManager")
-            }.map { it.toString() }.sorted().collect(Collectors.toList()))
-            amArgs.addAll(Files.list(Paths.get("${serverClassDir}/${serverPkg}")).filter {
-                !it.fileName.toString().startsWith("RootServiceMain") && Files.isRegularFile(it)
-            }.map { it.toString() }.sorted().collect(Collectors.toList()))
+            Files.list(Paths.get(libserverClassDir)).withCloseable { files ->
+                amArgs.addAll(files.filter {
+                    !it.fileName.toString().startsWith("IRootServiceManager")
+                }.map { it.toString() }.sorted().collect(Collectors.toList()))
+            }
+            Files.list(Paths.get("${serverClassDir}/${serverPkg}")).withCloseable { files ->
+                amArgs.addAll(files.filter {
+                    !it.fileName.toString().startsWith("RootServiceMain") && Files.isRegularFile(it)
+                }.map { it.toString() }.sorted().collect(Collectors.toList()))
+            }
             runD8(amArgs)
             println("Created ${amJar}")
 
             println("Creating main.jar...")
             def mainArgs = ['--release', '--min-api', min_sdk, '--output', mainJar.absolutePath, '--lib', androidJar]
-            mainArgs.addAll(Files.list(Paths.get(libserverClassDir)).filter {
-                it.fileName.toString().startsWith("IRootServiceManager") || it.fileName.toString().startsWith("ServerUtils")
-            }.map { it.toString() }.sorted().collect(Collectors.toList()))
-            mainArgs.addAll(Files.list(Paths.get("${serverClassDir}/${serverPkg}")).filter {
-                it.fileName.toString().startsWith("RootServiceMain") && Files.isRegularFile(it)
-            }.map { it.toString() }.sorted().collect(Collectors.toList()))
+            Files.list(Paths.get(libserverClassDir)).withCloseable { files ->
+                mainArgs.addAll(files.filter {
+                    it.fileName.toString().startsWith("IRootServiceManager") || it.fileName.toString().startsWith("ServerUtils")
+                }.map { it.toString() }.sorted().collect(Collectors.toList()))
+            }
+            Files.list(Paths.get("${serverClassDir}/${serverPkg}")).withCloseable { files ->
+                mainArgs.addAll(files.filter {
+                    it.fileName.toString().startsWith("RootServiceMain") && Files.isRegularFile(it)
+                }.map { it.toString() }.sorted().collect(Collectors.toList()))
+            }
             runD8(mainArgs)
             println("Created ${mainJar}")
         }

@@ -60,6 +60,10 @@ public interface IFilterableAppInfo {
     @NonNull
     Map<ComponentInfo, Integer> getTrackerComponents();
 
+    default int getTrackerCount() {
+        return getTrackerComponents().size();
+    }
+
     @NonNull
     List<AppOpsManagerCompat.OpEntry> getAppOps();
 

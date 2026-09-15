@@ -5,65 +5,101 @@ package io.github.muntashirakon.AppManager.ipc;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import static com.topjohnwu.superuser.Shell.EXECUTOR;
 
 // Copyright 2020 John "topjohnwu" Wu
 public class SerialExecutorService extends AbstractExecutorService implements Callable<Void> {
-    private boolean mIsShutdown = false;
+    private final Executor mExecutor;
     private final ArrayDeque<Runnable> mTasks = new ArrayDeque<>();
-    private FutureTask<Void> mScheduleTask = null;
+    private boolean mIsShutdown;
+    private boolean mScheduled;
+    private Thread mWorker;
+
+    public SerialExecutorService() {
+        this(EXECUTOR);
+    }
+
+    SerialExecutorService(Executor executor) {
+        mExecutor = Objects.requireNonNull(executor);
+    }
 
     @Override
     public Void call() {
-        for (; ; ) {
-            Runnable task;
+        synchronized (this) {
+            mWorker = Thread.currentThread();
+        }
+        try {
+            for (;;) {
+                Runnable task;
+                synchronized (this) {
+                    task = mTasks.poll();
+                    if (task == null) return null;
+                }
+                task.run();
+            }
+        } finally {
             synchronized (this) {
-                if ((task = mTasks.poll()) == null) {
-                    mScheduleTask = null;
-                    return null;
+                mWorker = null;
+                mScheduled = false;
+                // A throwing task must not strand the rest of the queue.
+                try {
+                    if (!mTasks.isEmpty()) scheduleWorker();
+                } finally {
+                    notifyAll();
                 }
             }
-            task.run();
+        }
+    }
+
+    private void scheduleWorker() {
+        mScheduled = true;
+        try {
+            // Retain the original FutureTask containment: an asynchronous task failure must
+            // not reach Android's process-wide uncaught-exception handler.
+            mExecutor.execute(new FutureTask<>(this));
+        } catch (RuntimeException e) {
+            mScheduled = false;
+            throw e;
         }
     }
 
     @Override
-    public synchronized void execute(Runnable r) {
-        if (mIsShutdown) {
-            throw new RejectedExecutionException(
-                    "Task " + r.toString() + " rejected from " + this);
-        }
-        mTasks.offer(r);
-        if (mScheduleTask == null) {
-            mScheduleTask = new FutureTask<>(this);
-            EXECUTOR.execute(mScheduleTask);
+    public synchronized void execute(Runnable task) {
+        Objects.requireNonNull(task);
+        if (mIsShutdown) throw new RejectedExecutionException("Executor is shut down");
+        mTasks.offer(task);
+        if (!mScheduled) {
+            try {
+                scheduleWorker();
+            } catch (RuntimeException e) {
+                mTasks.removeLastOccurrence(task);
+                throw e;
+            }
         }
     }
 
     @Override
     public synchronized void shutdown() {
         mIsShutdown = true;
-        mTasks.clear();
+        notifyAll();
     }
 
     @Override
     public synchronized List<Runnable> shutdownNow() {
         mIsShutdown = true;
-        if (mScheduleTask != null)
-            mScheduleTask.cancel(true);
-        try {
-            return new ArrayList<>(mTasks);
-        } finally {
-            mTasks.clear();
-        }
+        List<Runnable> pending = new ArrayList<>(mTasks);
+        mTasks.clear();
+        if (mWorker != null) mWorker.interrupt();
+        notifyAll();
+        return pending;
     }
 
     @Override
@@ -73,18 +109,20 @@ public class SerialExecutorService extends AbstractExecutorService implements Ca
 
     @Override
     public synchronized boolean isTerminated() {
-        return mIsShutdown && mScheduleTask == null;
+        return mIsShutdown && !mScheduled && mTasks.isEmpty();
     }
 
     @Override
     public synchronized boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
-        if (mScheduleTask == null)
-            return true;
-        try {
-            mScheduleTask.get(timeout, unit);
-        } catch (TimeoutException e) {
-            return false;
-        } catch (ExecutionException ignored) {
+        long remaining = unit.toNanos(timeout);
+        long lastCheck = System.nanoTime();
+        while (!isTerminated()) {
+            if (remaining <= 0) return false;
+            // Waiting on the monitor releases it so the worker can drain and terminate.
+            TimeUnit.NANOSECONDS.timedWait(this, remaining);
+            long now = System.nanoTime();
+            remaining -= now - lastCheck;
+            lastCheck = now;
         }
         return true;
     }

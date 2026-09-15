@@ -21,8 +21,10 @@ import java.util.Objects;
 // Copyright 2017 Zheng Li
 public final class DataTransmission implements Closeable {
     private static final int MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
+    private static final int MAX_PROTOCOL_SIZE = 64;
+    private static final int AUTH_MESSAGE_SIZE = 32;
     /**
-     * Protocol version. Specification: <code>protocol-version,token</code>
+     * Version of the framed mutual-authentication protocol.
      */
     public static final String PROTOCOL_VERSION = "1.2.4";
 
@@ -38,8 +40,8 @@ public final class DataTransmission implements Closeable {
     private final boolean mAsync;
 
     @Nullable
-    private OnReceiveCallback mOnReceiveCallback;
-    private boolean mRunning = true;
+    private volatile OnReceiveCallback mOnReceiveCallback;
+    private volatile boolean mRunning = true;
 
     public DataTransmission(@NonNull OutputStream outputStream, @NonNull InputStream inputStream,
                             @Nullable OnReceiveCallback onReceiveCallback, boolean async) {
@@ -101,7 +103,7 @@ public final class DataTransmission implements Closeable {
      */
     public void sendMessage(@Nullable String text) throws IOException {
         if (text != null) {
-            sendMessage(text.getBytes());
+            sendMessage(text.getBytes(StandardCharsets.UTF_8));
         }
     }
 
@@ -113,7 +115,7 @@ public final class DataTransmission implements Closeable {
      * @see #sendMessage(String)
      * @see #sendAndReceiveMessage(byte[])
      */
-    public void sendMessage(@Nullable byte[] messageBytes) throws IOException {
+    public synchronized void sendMessage(@Nullable byte[] messageBytes) throws IOException {
         if (messageBytes != null) {
             if (messageBytes.length > MAX_MESSAGE_SIZE) {
                 throw new IOException("Message is too large: " + messageBytes.length);
@@ -132,13 +134,25 @@ public final class DataTransmission implements Closeable {
      */
     @NonNull
     private byte[] readMessage() throws IOException {
+        return readMessage(MAX_MESSAGE_SIZE);
+    }
+
+    @NonNull
+    private byte[] readMessage(int maxSize) throws IOException {
         int len = mInputStream.readInt();
-        if (len < 0 || len > MAX_MESSAGE_SIZE) {
+        if (len < 0 || len > maxSize) {
             throw new IOException("Invalid message length: " + len);
         }
         byte[] bytes = new byte[len];
         mInputStream.readFully(bytes, 0, len);
         return bytes;
+    }
+
+    @NonNull
+    private byte[] readAuthMessage() throws IOException {
+        byte[] message = readMessage(AUTH_MESSAGE_SIZE);
+        if (message.length != AUTH_MESSAGE_SIZE) throw new IOException("Invalid authentication message length.");
+        return message;
     }
 
     /**
@@ -174,8 +188,8 @@ public final class DataTransmission implements Closeable {
             sendMessage(nonceC);
 
             // Receive server's HMAC proof and server nonce (HMAC_S, None_S)
-            byte[] serverHmac = readMessage();
-            byte[] nonceS = readMessage();
+            byte[] serverHmac = readAuthMessage();
+            byte[] nonceS = readAuthMessage();
 
             // Validate server (HMAC_S == HMAC(token, Nonce_C)?)
             byte[] expectedServerHmac = AuthUtils.calculateHmac(token, nonceC);
@@ -191,12 +205,11 @@ public final class DataTransmission implements Closeable {
         } else if (role == Role.Server) {
             FLog.log("DataTransmission#shakeHands: Server protocol: " + PROTOCOL_VERSION);
             // Receive protocol version and client nonce (Nonce_C)
-            String clientProtocol = new String(readMessage(), StandardCharsets.UTF_8);
+            String clientProtocol = new String(readMessage(MAX_PROTOCOL_SIZE), StandardCharsets.UTF_8);
             if (!PROTOCOL_VERSION.equals(clientProtocol)) {
-                throw new ProtocolVersionException("Client protocol version: " + clientProtocol + ", " +
-                        "Server protocol version: " + PROTOCOL_VERSION);
+                throw new ProtocolVersionException("Client and server protocol versions differ.");
             }
-            byte[] nonceC = readMessage();
+            byte[] nonceC = readAuthMessage();
 
             // Prove legitimacy of server to the client (HMAC_S = HMAC(token, Nonce_C))
             byte[] serverHmac = AuthUtils.calculateHmac(token, nonceC);
@@ -207,7 +220,7 @@ public final class DataTransmission implements Closeable {
             sendMessage(nonceS);
 
             // Receive client's HMAC (HMAC_C)
-            byte[] clientHmac = readMessage();
+            byte[] clientHmac = readAuthMessage();
 
             // Validate client (HMAC_C == HMAC(token, Nonce_S)?)
             byte[] expectedClientHmac = AuthUtils.calculateHmac(token, nonceS);
@@ -239,9 +252,8 @@ public final class DataTransmission implements Closeable {
      * @param bytes Bytes that was received earlier
      */
     private void onReceiveMessage(@NonNull byte[] bytes) {
-        if (mOnReceiveCallback != null) {
-            mOnReceiveCallback.onMessage(bytes);
-        }
+        OnReceiveCallback callback = mOnReceiveCallback;
+        if (callback != null) callback.onMessage(bytes);
     }
 
     /**
